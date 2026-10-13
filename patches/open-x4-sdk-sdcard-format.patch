@@ -1,0 +1,30 @@
+diff --git a/libs/hardware/SDCardManager/include/SDCardManager.h b/libs/hardware/SDCardManager/include/SDCardManager.h
+index 1734632..019ea26 100644
+--- a/libs/hardware/SDCardManager/include/SDCardManager.h
++++ b/libs/hardware/SDCardManager/include/SDCardManager.h
+@@ -10,6 +10,7 @@ class SDCardManager {
+   SDCardManager();
+   bool begin();
+   bool ready() const;
++  bool format();
+   std::vector<String> listFiles(const char* path = "/", int maxFiles = 200);
+   // Read the entire file at `path` into a String. Returns empty string on failure.
+   String readFile(const char* path);
+diff --git a/libs/hardware/SDCardManager/src/SDCardManager.cpp b/libs/hardware/SDCardManager/src/SDCardManager.cpp
+index 55ad5ae..824e992 100644
+--- a/libs/hardware/SDCardManager/src/SDCardManager.cpp
++++ b/libs/hardware/SDCardManager/src/SDCardManager.cpp
+@@ -25,6 +25,13 @@ bool SDCardManager::ready() const {
+   return initialized;
+ }
+ 
++bool SDCardManager::format() {
++  if (!initialized) return false;
++  const bool result = sd.format();
++  initialized = false;
++  return result;
++}
++
+ std::vector<String> SDCardManager::listFiles(const char* path, const int maxFiles) {
+   std::vector<String> ret;
+   if (!initialized) {

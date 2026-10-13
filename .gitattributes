@@ -1,0 +1,11 @@
+* text=auto
+*.md text eol=lf
+*.py text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.ini text eol=lf
+*.html text eol=lf
+*.patch text eol=lf whitespace=-blank-at-eol
+*.png binary
+*.exe binary
+*.bin binary

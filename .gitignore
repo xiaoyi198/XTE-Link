@@ -1,0 +1,62 @@
+# Publish only the source, current binaries and minimal documentation below.
+# Everything else remains local. Update the version paths for a new release.
+/*
+!/.gitignore
+!/.gitattributes
+!/.gitmodules
+!/README.md
+!/LICENSE
+!/platformio.ini
+!/requirements-dev.txt
+!/open-x4-sdk/
+
+# Firmware source
+!/firmware/
+/firmware/*
+!/firmware/src/
+/firmware/src/*
+!/firmware/src/*.cpp
+!/firmware/src/*.h
+
+# Runtime driver modules and its dependency lists
+!/pc_driver/
+/pc_driver/*
+!/pc_driver/__init__.py
+!/pc_driver/amd_gpu.py
+!/pc_driver/driver.py
+!/pc_driver/protocol.py
+!/pc_driver/tf.py
+!/pc_driver/tray.py
+!/pc_driver/requirements.txt
+!/pc_driver/requirements-build.txt
+
+# Required build hooks and SDK patch
+!/scripts/
+/scripts/*
+!/scripts/apply_sdk_patch.py
+!/scripts/archive_firmware.py
+!/scripts/build_driver.py
+!/patches/
+/patches/*
+!/patches/open-x4-sdk-sdcard-format.patch
+!/patches/LICENSE-open-x4-sdk
+
+# Current Windows EXE bundle supplied by the user
+!/artifacts/
+/artifacts/*
+!/artifacts/pc-driver/
+/artifacts/pc-driver/*
+!/artifacts/pc-driver/20261014-001309/
+/artifacts/pc-driver/20261014-001309/*
+!/artifacts/pc-driver/20261014-001309/XTE-Link.exe
+!/artifacts/pc-driver/20261014-001309/SHA256SUMS.txt
+!/artifacts/pc-driver/20261014-001309/build-requirements.txt
+!/artifacts/pc-driver/20261014-001309/使用说明.txt
+
+# Current device application image
+!/artifacts/firmware/
+/artifacts/firmware/*
+!/artifacts/firmware/hints2-20261013/
+/artifacts/firmware/hints2-20261013/*
+!/artifacts/firmware/hints2-20261013/firmware.bin
+!/artifacts/firmware/hints2-20261013/SHA256SUMS.txt
