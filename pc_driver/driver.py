@@ -419,45 +419,56 @@ class DshApprovalAdapter:
         return f"{name}={value}"
 
 
+try:
+    from _ctypes import COMError
+except ImportError:  # Not Windows: COM is never used.
+    class COMError(Exception):
+        pass
+
+
 class WindowsVolume:
     """Read and adjust the default Windows endpoint master volume."""
 
     def __init__(self):
         self._endpoint = None
-        self._enumerator = None
         self._ok = False
-        if sys.platform != "win32":
-            return
+        if sys.platform == "win32":
+            self._connect()
+
+    def _connect(self):
+        # Audio device changes invalidate the endpoint; callers re-acquire it once.
+        self._ok = False
         try:
-            import comtypes
-            from comtypes import CLSCTX_ALL, CoCreateInstance
-            from comtypes.client import CreateObject
+            from comtypes import CLSCTX_ALL
             from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
             devices = AudioUtilities.GetSpeakers()
             interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             self._endpoint = ctypes.cast(interface, ctypes.POINTER(IAudioEndpointVolume))
             self._ok = True
-        except (ImportError, OSError, RuntimeError, TypeError):
+        except (ImportError, OSError, RuntimeError, TypeError, COMError):
             self._ok = False
 
+    def _call(self, action):
+        for attempt in range(2):
+            if not self._ok:
+                return None
+            try:
+                return action(self._endpoint)
+            except (OSError, ValueError, COMError):
+                if attempt:
+                    return None
+                self._connect()
+        return None
+
     def get_percent(self):
-        if not self._ok:
-            return None
-        try:
-            return round(max(0.0, min(1.0, self._endpoint.GetMasterVolumeLevelScalar())) * 100, 1)
-        except (OSError, ValueError):
-            return None
+        return self._call(lambda endpoint: round(max(0.0, min(1.0, endpoint.GetMasterVolumeLevelScalar())) * 100, 1))
 
     def adjust(self, delta):
-        if not self._ok:
-            return None
-        try:
-            current = self._endpoint.GetMasterVolumeLevelScalar()
-            target = max(0.0, min(1.0, current + delta / 100.0))
-            self._endpoint.SetMasterVolumeLevelScalar(target, None)
-            return self.get_percent()
-        except (OSError, ValueError):
-            return None
+        def change(endpoint):
+            target = max(0.0, min(1.0, endpoint.GetMasterVolumeLevelScalar() + delta / 100.0))
+            endpoint.SetMasterVolumeLevelScalar(target, None)
+            return round(max(0.0, min(1.0, endpoint.GetMasterVolumeLevelScalar())) * 100, 1)
+        return self._call(change)
 
 
 def collect_status(volume=None, agents=None):
@@ -720,12 +731,12 @@ def main(argv=None, stop_event=None, on_connection=None, on_device=None, command
                             on_connection(*state)
                     if commands:
                         try:
-                            device, ssid, password, callback = commands.get_nowait()
+                            job, callback = commands.get_nowait()
                         except queue.Empty:
                             pass
                         else:
                             try:
-                                session.provision(device, ssid, password)
+                                job(session)
                                 callback(None)
                             except (OSError, ValueError) as exc:
                                 callback(str(exc))

@@ -16,6 +16,7 @@ import time
 
 from serial.tools import list_ports
 from .protocol import MAX_PAYLOAD_BYTES
+from .sleep_image import FOLDER as SLEEP_FOLDER
 from .tf import TfClient
 
 SERVICE = "_xte-link._tcp.local."
@@ -414,6 +415,22 @@ class Session:
             else:
                 raise OSError("设备配置响应过长。")
         raise TimeoutError("配置提交响应超时，请用 USB 重试。")
+
+    def upload_sleep_images(self, images, replace=False):
+        """Write converted (remote, data) sleep pictures over USB, like provisioning."""
+        if not self.usb or not self.info.get("device"):
+            raise OSError("请连接 USB，并等待设备身份确认。")
+        client = TfClient(self.usb, timeout=10)
+        client.request("abort")
+        client.mount()
+        client.request("mkdir", path=SLEEP_FOLDER)
+        if replace:
+            for entry in list(client.list(SLEEP_FOLDER)):
+                if not entry["dir"] and entry["name"].lower().endswith(".bmp"):
+                    client.request("remove", path=f"{SLEEP_FOLDER}/{entry['name']}")
+        for remote, data in images:
+            client.upload_bytes(data, remote)
+        self.hello_at = 0
 
     def close(self):
         for connection in (self.usb, self.tcp, self.discovery):

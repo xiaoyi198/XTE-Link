@@ -9,6 +9,7 @@
 
 #include "protocol.h"
 #include "sleep_art.h"
+#include "sleep_image.h"
 #include "tf_transfer.h"
 #include "tf_font.h"
 #include "settings.h"
@@ -51,7 +52,7 @@ SettingsMode settingsMode = SettingsMode::PREVIEW;
 uint8_t selectedSetting = 0;
 uint8_t draftSetting = 0;
 const char* settingsMessage = nullptr;
-constexpr const char* FIRMWARE_VERSION = "usb-power-20261016";
+constexpr const char* FIRMWARE_VERSION = "sleep-image-20261016";
 constexpr uint8_t SETTING_COUNT = 6;
 constexpr uint32_t POWER_HOLD_MS = 1500;
 // The pinned SDK has no power-latch API; GPIO13 follows the verified X4 contract.
@@ -588,7 +589,24 @@ void handleNetworkLine(char* line, size_t length) {
   if (xte::parseStatus(line, length, incoming)) acceptStatus(incoming);
 }
 
+bool renderSleepImage() {
+  xte::SleepImage image;
+  uint8_t* frame = display.getFrameBuffer();
+  if (!image.open() || !image.draw(frame, xte::SleepImage::BASE)) return false;
+  display.displayBuffer(EInkDisplay::FULL_REFRESH);
+  if (image.hasGray() && image.draw(frame, xte::SleepImage::LSB)) {
+    display.copyGrayscaleLsbBuffers(frame);
+    if (image.draw(frame, xte::SleepImage::MSB)) {
+      display.copyGrayscaleMsbBuffers(frame);
+      display.displayGrayBuffer();
+    }
+  }
+  image.close();
+  return true;
+}
+
 void renderSleep() {
+  if (renderSleepImage()) return;
   display.clearScreen();
   graphics.setTextColor(0);
   graphics.setTextWrap(false);

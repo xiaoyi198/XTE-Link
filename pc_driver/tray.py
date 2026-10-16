@@ -16,6 +16,7 @@ import pystray
 from serial.tools import list_ports
 from pc_driver import driver
 from pc_driver.network import load_config, save_config, wifi_config
+from pc_driver import sleep_image
 
 
 def icon_image():
@@ -70,6 +71,7 @@ class TrayApp:
                 pystray.MenuItem("局域网连接", self.select_mode("lan"), checked=lambda item: self.config["mode"] == "lan", radio=True))),
             pystray.MenuItem("设备", pystray.Menu(self.device_items)),
             pystray.MenuItem("配置 WiFi（USB）", lambda icon, item: self.configure_wifi(icon, item)),
+            pystray.MenuItem("上传休眠图片（USB）", self.sleep_images_dialog),
             pystray.MenuItem("驱动设置", self.settings_dialog),
             pystray.MenuItem("打开日志", self.open_log),
             pystray.Menu.SEPARATOR,
@@ -176,7 +178,8 @@ class TrayApp:
             def submit():
                 try:
                     wifi_config(target or "", "0" * 64, ssid.get(), password.get())
-                    self.commands.put_nowait((target, ssid.get(), password.get(), results.put))
+                    name, secret = ssid.get(), password.get()
+                    self.commands.put_nowait((lambda session: session.provision(target, name, secret), results.put))
                 except (ValueError, queue.Full):
                     messagebox.showerror("无法提交", "请确认 USB 设备、WiFi 名称和密码（8～63 个字符），并等待上次配置完成。", parent=window)
                     return
@@ -202,6 +205,146 @@ class TrayApp:
                     window.destroy()
             window.after(100, poll)
             ssid.focus_set()
+        self.dialog(build)
+
+    def sleep_images_dialog(self, icon, item):
+        def build(window, tk, ttk, messagebox):
+            from tkinter import filedialog
+            from PIL import ImageTk
+            view = (600, 360)
+            entries = []
+            state = {"index": 0, "drag": None, "job": None, "photo": None}
+            ttk.Label(window, text="上传到 TF 卡 /.sleep/，每次休眠随机显示一张；TF 根目录有 /sleep.bmp 时只显示它。\n"
+                                   "拖动预览调整取景，滚轮缩放；停下后显示设备上的 4 级灰度效果。",
+                      padding=12).grid(row=0, column=0, columnspan=4)
+            canvas = tk.Canvas(window, width=view[0], height=view[1], background="white", highlightthickness=1)
+            canvas.grid(row=1, column=0, columnspan=4, padx=12)
+            title = ttk.Label(window, text="尚未选择图片")
+            title.grid(row=2, column=1, columnspan=2, pady=6)
+            replace = tk.BooleanVar(value=False)
+            ttk.Checkbutton(window, text="先删除设备上已有的休眠图片", variable=replace).grid(row=3, column=0, columnspan=4)
+            progress = ttk.Label(window, text="", padding=6)
+            progress.grid(row=5, column=0, columnspan=4)
+            results = queue.Queue()
+
+            def show(exact=True):
+                if state["job"]:
+                    window.after_cancel(state["job"])
+                    state["job"] = None
+                canvas.delete("all")
+                if not entries:
+                    return
+                entry = entries[state["index"]]
+                if exact:
+                    shown = sleep_image.render(entry["image"], entry["zoom"], entry["center"]).convert("L")
+                    shown = shown.resize(view, Image.Resampling.LANCZOS)
+                else:  # Fast, undithered frame while dragging or zooming.
+                    box = sleep_image.crop_box(entry["thumb"].size, entry["zoom"], entry["center"])
+                    shown = entry["thumb"].resize(view, Image.Resampling.BILINEAR, box=box).convert("L")
+                state["photo"] = ImageTk.PhotoImage(shown, master=window)
+                canvas.create_image(0, 0, anchor="nw", image=state["photo"])
+                title.configure(text=f"{state['index'] + 1}/{len(entries)}  {Path(entry['path']).name}  "
+                                     f"缩放 {entry['zoom']:.1f}×")
+
+            def adjust():
+                show(exact=False)
+                state["job"] = window.after(300, show)
+
+            def press(event):
+                state["drag"] = (event.x, event.y)
+
+            def motion(event):
+                if not entries or not state["drag"]:
+                    return
+                entry = entries[state["index"]]
+                width, height = entry["image"].size
+                left, top, right, bottom = sleep_image.crop_box(entry["image"].size, entry["zoom"], entry["center"])
+                # Dragging moves the picture, so the crop window moves the other way.
+                dx = (event.x - state["drag"][0]) / view[0] * (right - left) / width
+                dy = (event.y - state["drag"][1]) / view[1] * (bottom - top) / height
+                entry["center"] = ((left + right) / 2 / width - dx, (top + bottom) / 2 / height - dy)
+                state["drag"] = (event.x, event.y)
+                adjust()
+
+            def wheel(event):
+                if not entries:
+                    return
+                entry = entries[state["index"]]
+                factor = 1.1 if event.delta > 0 else 1 / 1.1
+                entry["zoom"] = min(max(entry["zoom"] * factor, 1.0), sleep_image.MAX_ZOOM)
+                adjust()
+
+            def step(offset):
+                if entries:
+                    state["index"] = (state["index"] + offset) % len(entries)
+                    show()
+
+            def reset():
+                if entries:
+                    entries[state["index"]].update(zoom=1.0, center=(0.5, 0.5))
+                    show()
+
+            canvas.bind("<ButtonPress-1>", press)
+            canvas.bind("<B1-Motion>", motion)
+            canvas.bind("<MouseWheel>", wheel)
+            ttk.Button(window, text="上一张", command=lambda: step(-1)).grid(row=2, column=0, pady=6)
+            ttk.Button(window, text="下一张", command=lambda: step(1)).grid(row=2, column=3, pady=6)
+            actions = ttk.Frame(window)
+            actions.grid(row=4, column=0, columnspan=4, pady=6)
+
+            def choose():
+                paths = filedialog.askopenfilenames(parent=window, title="选择休眠图片", filetypes=[
+                    ("图片", "*.jpg *.jpeg *.png *.bmp *.webp *.gif"), ("全部文件", "*.*")])
+                if not paths:
+                    return
+                try:
+                    chosen = []
+                    for path in paths:
+                        image = sleep_image.load(path)
+                        thumb = image.copy()
+                        thumb.thumbnail((1600, 1600))
+                        chosen.append({"path": path, "image": image, "thumb": thumb, "zoom": 1.0, "center": (0.5, 0.5)})
+                except (OSError, ValueError) as exc:
+                    messagebox.showerror("无法读取图片", str(exc), parent=window)
+                    return
+                entries[:] = chosen
+                state["index"] = 0
+                upload.configure(state="normal", text=f"上传 {len(entries)} 张")
+                show()
+
+            def submit():
+                images = []
+                for entry in entries:
+                    data = sleep_image.encode(sleep_image.render(entry["image"], entry["zoom"], entry["center"]))
+                    images.append((sleep_image.remote_name(entry["path"], data), data))
+                try:
+                    self.commands.put_nowait((lambda session: session.upload_sleep_images(images, replace.get()), results.put))
+                except queue.Full:
+                    messagebox.showerror("无法提交", "上一项 USB 操作尚未完成，请稍后重试。", parent=window)
+                    return
+                upload.configure(state="disabled")
+                progress.configure(text=f"正在上传 {len(images)} 张图片，每张约 10 秒，请保持 USB 连接……")
+
+            ttk.Button(actions, text="选择图片…", command=choose).grid(row=0, column=0, padx=6)
+            ttk.Button(actions, text="重置裁切", command=reset).grid(row=0, column=1, padx=6)
+            upload = ttk.Button(actions, text="上传", command=submit, state="disabled")
+            upload.grid(row=0, column=2, padx=6)
+
+            def poll():
+                try:
+                    error = results.get_nowait()
+                except queue.Empty:
+                    window.after(100, poll)
+                    return
+                upload.configure(state="normal")
+                if error:
+                    progress.configure(text="上传未完成，可以重试。")
+                    messagebox.showerror("上传失败", error, parent=window)
+                    window.after(100, poll)
+                else:
+                    messagebox.showinfo("上传完成", "长按电源键休眠即可看到图片。", parent=window)
+                    window.destroy()
+            window.after(100, poll)
         self.dialog(build)
 
     def settings_dialog(self, icon, item):

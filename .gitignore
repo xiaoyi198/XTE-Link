@@ -26,6 +26,7 @@
 !/pc_driver/driver.py
 !/pc_driver/protocol.py
 !/pc_driver/network.py
+!/pc_driver/sleep_image.py
 !/pc_driver/tf.py
 !/pc_driver/tray.py
 !/pc_driver/requirements.txt
@@ -47,18 +48,18 @@
 /artifacts/*
 !/artifacts/pc-driver/
 /artifacts/pc-driver/*
-!/artifacts/pc-driver/20261014-011634/
-/artifacts/pc-driver/20261014-011634/*
-!/artifacts/pc-driver/20261014-011634/XTE-Link.exe
-!/artifacts/pc-driver/20261014-011634/SHA256SUMS.txt
-!/artifacts/pc-driver/20261014-011634/build-requirements.txt
-!/artifacts/pc-driver/20261014-011634/使用说明.txt
+!/artifacts/pc-driver/20261016-233355/
+/artifacts/pc-driver/20261016-233355/*
+!/artifacts/pc-driver/20261016-233355/XTE-Link.exe
+!/artifacts/pc-driver/20261016-233355/SHA256SUMS.txt
+!/artifacts/pc-driver/20261016-233355/build-requirements.txt
+!/artifacts/pc-driver/20261016-233355/使用说明.txt
 
 # Current device application image
 !/artifacts/firmware/
 /artifacts/firmware/*
-!/artifacts/firmware/usb-power-20261016-222955/
-/artifacts/firmware/usb-power-20261016-222955/*
-!/artifacts/firmware/usb-power-20261016-222955/firmware.bin
-!/artifacts/firmware/usb-power-20261016-222955/SHA256SUMS.txt
-!/artifacts/firmware/usb-power-20261016-222955/manifest.json
+!/artifacts/firmware/sleep-image-20261016-225639/
+/artifacts/firmware/sleep-image-20261016-225639/*
+!/artifacts/firmware/sleep-image-20261016-225639/firmware.bin
+!/artifacts/firmware/sleep-image-20261016-225639/SHA256SUMS.txt
+!/artifacts/firmware/sleep-image-20261016-225639/manifest.json
