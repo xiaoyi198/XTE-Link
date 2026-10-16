@@ -10,6 +10,34 @@ AGENT_TOOLS = ("dsh", "codex")
 AGENT_STATES = ("offline", "idle", "running", "ask", "done", "error")
 
 
+def encode_agent(agent):
+    validate_agents([agent])
+    payload = json.dumps({"v": 2, "cmd": "agents", "agents": [agent]},
+                         ensure_ascii=True, separators=(",", ":")).encode("ascii")
+    if len(payload) > MAX_PAYLOAD_BYTES:
+        raise ValueError("agent event exceeds frame limit")
+    return payload + b"\n"
+
+
+def validate_agents(agents):
+    if not isinstance(agents, list) or len(agents) > 2:
+        raise ValueError("agents must contain at most two entries")
+    seen_tools = set()
+    for agent in agents:
+        if not isinstance(agent, dict):
+            raise ValueError("invalid agent entry")
+        tool, state = agent.get("tool"), agent.get("state")
+        if tool not in AGENT_TOOLS or tool in seen_tools or state not in AGENT_STATES:
+            raise ValueError("invalid agent tool or state")
+        seen_tools.add(tool)
+        for key, limit in (("id", 36), ("text", 48)):
+            value = agent.get(key, "")
+            if not isinstance(value, str) or len(value) > limit or any(ord(ch) < 32 or ord(ch) > 126 for ch in value):
+                raise ValueError(f"invalid agent {key}")
+        if state == "ask" and not agent.get("id"):
+            raise ValueError("pending agent request requires id")
+
+
 def encode_status(status):
     if status.get("v") != 2 or isinstance(status.get("v"), bool):
         raise ValueError("unsupported protocol version")
@@ -43,22 +71,7 @@ def encode_status(status):
     if used is not None and total is not None and used > total:
         raise ValueError("memory used exceeds total")
     agents = status.get("agents", [])
-    if not isinstance(agents, list) or len(agents) > 2:
-        raise ValueError("agents must contain at most two entries")
-    seen_tools = set()
-    for agent in agents:
-        if not isinstance(agent, dict):
-            raise ValueError("invalid agent entry")
-        tool, state = agent.get("tool"), agent.get("state")
-        if tool not in AGENT_TOOLS or tool in seen_tools or state not in AGENT_STATES:
-            raise ValueError("invalid agent tool or state")
-        seen_tools.add(tool)
-        for key, limit in (("id", 36), ("text", 48)):
-            value = agent.get(key, "")
-            if not isinstance(value, str) or len(value) > limit or any(ord(ch) < 32 or ord(ch) > 126 for ch in value):
-                raise ValueError(f"invalid agent {key}")
-        if state == "ask" and not agent.get("id"):
-            raise ValueError("pending agent request requires id")
+    validate_agents(agents)
     payload = {key: status.get(key) for key in ("v", "host", "time", *METRICS)}
     if agents:
         payload["agents"] = agents

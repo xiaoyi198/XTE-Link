@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import io
 import json
 from pathlib import Path
 import secrets
@@ -47,6 +48,7 @@ class TfClient:
         while time.monotonic() < deadline:
             byte = self.connection.read(1)
             if not byte:
+                time.sleep(0.005)
                 continue
             if byte != b"\n":
                 if len(line) < 2048 and not overflow:
@@ -88,29 +90,36 @@ class TfClient:
             yield entry
 
     def upload(self, local, remote):
+        with Path(local).open("rb") as source:
+            return self._upload(source, remote)
+
+    def upload_bytes(self, data, remote):
+        """Bounded in-memory config upload; never create a PC password file."""
+        return self._upload(io.BytesIO(data), remote)
+
+    def _upload(self, source, remote):
         remote_path(remote)
         if ".xte-part" in remote:
             raise ValueError(".xte-part is reserved for incomplete uploads")
-        with Path(local).open("rb") as source:
-            digest = hashlib.sha256()
-            size = 0
-            while block := source.read(65536):
-                digest.update(block)
-                size += len(block)
-            if size > 0xffffffff:
-                raise ValueError("File exceeds the 4 GiB TF protocol limit")
-            expected = digest.hexdigest()
-            source.seek(0)
-            self.request("put", path=remote, size=size, sha256=expected)
-            offset = 0
-            while block := source.read(CHUNK):
-                response = self.request("write", offset=offset, data=block.hex())
-                offset += len(block)
-                if response.get("offset") != offset:
-                    raise OSError("Unexpected upload offset")
-            response = self.request("finish")
-            if response.get("sha256") != expected:
-                raise OSError("Upload SHA-256 mismatch")
+        digest = hashlib.sha256()
+        size = 0
+        while block := source.read(65536):
+            digest.update(block)
+            size += len(block)
+        if size > 0xffffffff:
+            raise ValueError("File exceeds the 4 GiB TF protocol limit")
+        expected = digest.hexdigest()
+        source.seek(0)
+        self.request("put", path=remote, size=size, sha256=expected)
+        offset = 0
+        while block := source.read(CHUNK):
+            response = self.request("write", offset=offset, data=block.hex())
+            offset += len(block)
+            if response.get("offset") != offset:
+                raise OSError("Unexpected upload offset")
+        response = self.request("finish")
+        if response.get("sha256") != expected:
+            raise OSError("Upload SHA-256 mismatch")
         return size, expected
 
     def download(self, remote, local):

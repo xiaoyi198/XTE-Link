@@ -2,3 +2,5 @@ psutil==7.0.0
 pyserial==3.5
 pycaw==20230407
 comtypes==1.4.8
+zeroconf==0.151.5
+ifaddr==0.2.0

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
+#include <BatteryMonitor.h>
 #include <EInkDisplay.h>
 #include <InputManager.h>
 #include <algorithm>
@@ -11,18 +12,26 @@
 #include "tf_transfer.h"
 #include "tf_font.h"
 #include "settings.h"
+#include "network.h"
 
 namespace {
 // SDK requires constructor pins; these values follow the verified X4 contract.
 EInkDisplay display(8, 10, 21, 4, 5, 6);
 InputManager input;
+// GPIO0 follows the X4 contract; the SDK 2.0 divider still awaits calibration.
+BatteryMonitor battery(0);
+uint16_t batteryMv = 0;
+uint32_t batterySampledAt = 0;
 xte::LineReceiver receiver;
 xte::Status status;
 xte::TfTransfer tf;
 xte::TfFont font;
-bool handleTfLine(char* line, size_t length) { return tf.handle(line, length); }
+xte::Network network;
+bool handleUsbLine(char* line, size_t length);
+void handleNetworkLine(char* line, size_t length);
 constexpr uint32_t OFFLINE_MS = 15000;
 uint32_t lastReceived = 0;
+uint32_t lastContact = 0;
 uint32_t lastRendered = 0;
 bool haveStatus = false;
 bool dirty = false;
@@ -42,11 +51,15 @@ SettingsMode settingsMode = SettingsMode::PREVIEW;
 uint8_t selectedSetting = 0;
 uint8_t draftSetting = 0;
 const char* settingsMessage = nullptr;
-constexpr const char* FIRMWARE_VERSION = "hints2-20261013";
-constexpr uint8_t SETTING_COUNT = 5;
+constexpr const char* FIRMWARE_VERSION = "usb-power-20261016";
+constexpr uint8_t SETTING_COUNT = 6;
 constexpr uint32_t POWER_HOLD_MS = 1500;
 // The pinned SDK has no power-latch API; GPIO13 follows the verified X4 contract.
 constexpr gpio_num_t POWER_LATCH = GPIO_NUM_13;
+// GPIO20 is driven high while USB is present (verified 2026-10-16; no pull needed).
+constexpr uint8_t USB_DETECT = 20;
+bool usbPowered = false;
+uint32_t usbPolledAt = 0;
 uint32_t powerPressedAt = 0;
 bool powerGesture = false;
 bool ignoreWakeRelease = false;
@@ -126,6 +139,40 @@ void renderButtonHints() {
   graphics.drawBitmap(right, 368, icons[5], 16, 16, 0);
 }
 
+uint8_t batteryBars(uint16_t millivolts) {
+  return (BatteryMonitor::percentageFromMillivolts(millivolts) * 22 + 50) / 100;
+}
+
+void sampleBattery() {
+  uint16_t samples[5];
+  for (uint16_t& sample : samples) sample = battery.readMillivolts();
+  std::sort(samples, samples + 5);
+  // Only a visible change in the icon schedules a normal-interval repaint.
+  if (batteryMv && batteryBars(samples[2]) != batteryBars(batteryMv)) dirty = true;
+  batteryMv = samples[2];
+  batterySampledAt = millis();
+}
+
+void renderBattery() {
+  // Below the 42 px connection label, above the header rule and right-side hints.
+  graphics.drawRect(744, 62, 26, 14, 0);
+  graphics.fillRect(770, 66, 3, 6, 0);
+  graphics.fillRect(746, 64, batteryBars(batteryMv), 10, 0);
+  if (!usbPowered) return;
+  static constexpr uint8_t bolt[13] = {0x07, 0x0e, 0x1c, 0x38, 0x70, 0xff, 0xff,
+                                       0x0e, 0x1c, 0x38, 0x70, 0x60, 0x40};
+  graphics.drawBitmap(732, 62, bolt, 8, 13, 0);
+}
+
+void pollUsb() {
+  usbPolledAt = millis();
+  const bool powered = digitalRead(USB_DETECT) == HIGH;
+  if (powered == usbPowered) return;
+  usbPowered = powered;
+  sampleBattery();  // Charging lifts the reading; refresh it with the plug state.
+  renderNow = true;
+}
+
 void metric(int16_t x, int16_t y, const char* label, const char* value) {
   uiText(x, y, label, 312);
   text(x, y + 54, 3, value);
@@ -198,12 +245,13 @@ void renderAgentPage() {
 }
 
 const char* settingLabel(uint8_t index) {
-  constexpr const char* labels[] = {"音量步长", "屏幕更新间隔", "启动页面", "设备信息", "恢复默认值"};
+  constexpr const char* labels[] = {"音量步长", "屏幕更新间隔", "启动页面", "连接方式", "设备信息", "恢复默认值"};
   return labels[index];
 }
 
 uint8_t settingIndex(uint8_t index) {
-  return index == 0 ? settings.volumeIndex : index == 1 ? settings.intervalIndex : settings.startupPage;
+  return index == 0 ? settings.volumeIndex : index == 1 ? settings.intervalIndex :
+         index == 2 ? settings.startupPage : network.isLan();
 }
 
 void settingValue(uint8_t index, uint8_t choice, char* value, size_t size) {
@@ -216,8 +264,10 @@ void settingValue(uint8_t index, uint8_t choice, char* value, size_t size) {
   } else if (index == 2) {
     constexpr const char* pages[] = {"状态页", "音量页", "助手页"};
     snprintf(value, size, "%s", pages[choice]);
+  } else if (index == 3) {
+    snprintf(value, size, "%s", choice ? "局域网连接" : "串口直连");
   } else {
-    snprintf(value, size, "%s", index == 3 ? "查看" : "重置");
+    snprintf(value, size, "%s", index == 4 ? "查看" : "重置");
   }
 }
 
@@ -229,27 +279,29 @@ void renderSettingsPage() {
     uiText(48, 146, "固件版本", 240);
     text(400, 158, 2, FIRMWARE_VERSION);
     uiText(48, 196, "协议版本", 240);
-    text(400, 208, 2, "v2 / USB CDC");
+    text(400, 208, 2, network.isLan() ? "v2 / LAN TCP" : "v2 / USB CDC");
     uiText(48, 246, "TF卡状态", 260);
     uiText(400, 246, SdMan.ready() ? "已挂载" : "未挂载", 352);
     uiText(48, 296, "可用内存", 240);
     snprintf(value, sizeof(value), "%u bytes", static_cast<unsigned>(ESP.getFreeHeap()));
     text(400, 308, 2, value);
-    uiText(48, 346, "字库状态", 240);
-    uiText(400, 346, font.healthy() ? "读取正常" : "读取失败", 352);
+    uiText(48, 346, network.isLan() ? "局域网地址" : "WiFi配置", 240);
+    if (network.isLan() && WiFi.status() == WL_CONNECTED)
+      text(400, 358, 2, WiFi.localIP().toString().c_str());
+    else uiText(400, 346, network.ready() ? "已配置" : "请用USB配置", 352);
     return;
   }
   if (settingsMode == SettingsMode::RESET) {
     uiText(48, 174, "恢复默认设置？", 704);
     uiText(48, 242, "音量步长 5%，更新间隔 5 秒", 704);
-    uiText(48, 300, "启动进入状态页", 704);
+    uiText(48, 300, "启动进入状态页，连接改为串口", 704);
     return;
   }
   for (uint8_t i = 0; i < SETTING_COUNT; ++i) {
-    const int16_t y = 142 + i * 50;
+    const int16_t y = 138 + i * 42;
     const bool selected = settingsMode != SettingsMode::PREVIEW && i == selectedSetting;
     const uint16_t color = selected ? 1 : 0;
-    if (selected) graphics.fillRect(28, y - 2, 744, 48, 0);
+    if (selected) graphics.fillRect(28, y - 2, 744, 46, 0);
     font.draw(graphics, 48, y, settingLabel(i), 440, color);
     char value[32];
     const uint8_t choice = settingsMode == SettingsMode::EDIT && i == selectedSetting ?
@@ -266,8 +318,12 @@ void render(bool online, bool full) {
   graphics.setTextColor(0);
   graphics.setTextWrap(false);
   text(28, 20, 3, "XTE-Link");
-  uiText(570, 8, online ? "在线" : haveStatus ? "离线" : "等待连接", 202);
-  text(28, 58, 2, haveStatus ? status.host : "USB SERIAL");
+  const char* connection = online ? "在线" : haveStatus ? "离线" : "等待连接";
+  if (!online && !haveStatus && network.isLan())
+    connection = !network.ready() ? "缺少WiFi配置" : WiFi.status() != WL_CONNECTED ? "WiFi连接中" : "等待驱动";
+  uiText(570, 8, connection, 202);
+  renderBattery();
+  text(28, 58, 2, haveStatus ? status.host : network.isLan() ? "LAN TCP" : "USB SERIAL");
   graphics.drawFastHLine(28, 88, 744, 0);
   if (page == Page::STATUS) renderStatusPage();
   else if (page == Page::VOLUME) renderVolumePage();
@@ -288,12 +344,14 @@ void render(bool online, bool full) {
   font.endRender();
   display.displayBuffer(full ? EInkDisplay::FULL_REFRESH : EInkDisplay::FAST_REFRESH);
   lastRendered = started;
-  Serial.printf("XTE: rendered %s in %lu ms, heap=%u\n", full ? "full" : "fast",
-                static_cast<unsigned long>(millis() - started), static_cast<unsigned>(ESP.getFreeHeap()));
+  Serial.printf("XTE: rendered %s in %lu ms, heap=%u battery=%umV\n", full ? "full" : "fast",
+                static_cast<unsigned long>(millis() - started), static_cast<unsigned>(ESP.getFreeHeap()),
+                static_cast<unsigned>(batteryMv));
   if (!font.healthy()) Serial.printf("XTE: font boxes: %s\n", font.error());
 }
 
 void sendVolumeDelta(int delta) {
+  if (!haveStatus || millis() - lastContact >= OFFLINE_MS) return;
   renderNow = true;
   if (haveStatus && std::isfinite(status.volume)) {
     status.volume = std::max(0.0f, std::min(100.0f, status.volume + delta));
@@ -301,17 +359,22 @@ void sendVolumeDelta(int delta) {
   if (++volumeSequence == 0) ++volumeSequence;
   volumePending = true;
   volumeRequestedAt = millis();
-  Serial.printf("XTE: volume_delta %+d %lu\n", delta, static_cast<unsigned long>(volumeSequence));
+  char message[64];
+  snprintf(message, sizeof(message), "XTE: volume_delta %+d %lu\n", delta, static_cast<unsigned long>(volumeSequence));
+  if (network.isLan()) network.send(message); else Serial.print(message);
   // Show the prediction before draining old status frames or PC confirmations.
-  render(haveStatus && millis() - lastReceived < OFFLINE_MS, false);
+  render(haveStatus && millis() - lastContact < OFFLINE_MS, false);
   renderNow = false;
 }
 
 void sendAgentAction(const char* action) {
+  if (!haveStatus || millis() - lastContact >= OFFLINE_MS) return;
   if (status.agentCount == 0 || selectedAgent >= status.agentCount) return;
   const xte::Agent& agent = status.agents[selectedAgent];
   if (strcmp(agent.state, "ask") != 0 || agent.requestId[0] == '\0') return;
-  Serial.printf("XTE: agent_action %s %s %s\n", action, agent.tool, agent.requestId);
+  char message[96];
+  snprintf(message, sizeof(message), "XTE: agent_action %s %s %s\n", action, agent.tool, agent.requestId);
+  if (network.isLan()) network.send(message); else Serial.print(message);
   renderNow = true;
 }
 
@@ -361,11 +424,11 @@ void handleSettingsButtons() {
       renderNow = true;
     } else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
       settingsMessage = nullptr;
-      if (selectedSetting < 3) {
+      if (selectedSetting < 4) {
         draftSetting = settingIndex(selectedSetting);
         settingsMode = SettingsMode::EDIT;
       } else {
-        settingsMode = selectedSetting == 3 ? SettingsMode::INFO : SettingsMode::RESET;
+        settingsMode = selectedSetting == 4 ? SettingsMode::INFO : SettingsMode::RESET;
       }
       renderNow = true;
     }
@@ -373,10 +436,24 @@ void handleSettingsButtons() {
     // Landscape top Left/Right are the SDK's Up/Down buttons.
     if (input.wasPressed(InputManager::BTN_UP) || input.wasPressed(InputManager::BTN_DOWN)) {
       const int delta = input.wasPressed(InputManager::BTN_UP) ? -1 : 1;
-      draftSetting = static_cast<uint8_t>((draftSetting + delta + 3) % 3);
+      const int count = selectedSetting == 3 ? 2 : 3;
+      draftSetting = static_cast<uint8_t>((draftSetting + delta + count) % count);
       settingsMessage = nullptr;
       renderNow = true;
     } else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
+      if (selectedSetting == 3) {
+        if (!network.setMode(draftSetting != 0)) {
+          settingsMessage = network.ready() ? "保存失败" : "请先用USB配置WiFi";
+        } else {
+          receiver.reset(); haveStatus = false; lastContact = 0; volumePending = false;
+          status = xte::Status{};
+          settingsMode = SettingsMode::LIST;
+          settingsMessage = "已保存";
+          network.info();
+        }
+        renderNow = true;
+        return;
+      }
       xte::Settings next = settings;
       if (selectedSetting == 0) next.volumeIndex = draftSetting;
       else if (selectedSetting == 1) next.intervalIndex = draftSetting;
@@ -385,7 +462,12 @@ void handleSettingsButtons() {
       renderNow = true;
     }
   } else if (settingsMode == SettingsMode::RESET && input.wasPressed(InputManager::BTN_CONFIRM)) {
-    if (commitSettings(xte::Settings{})) settingsMode = SettingsMode::LIST;
+    if (network.setMode(false) && commitSettings(xte::Settings{})) {
+      receiver.reset(); haveStatus = false; lastContact = 0; volumePending = false;
+      status = xte::Status{};
+      settingsMode = SettingsMode::LIST;
+      network.info();
+    } else settingsMessage = "保存失败";
     renderNow = true;
   }
 }
@@ -425,6 +507,85 @@ bool backgroundRenderDue(uint32_t now, bool online) {
   // Connection changes bypass the selected interval so stale data is visibly offline.
   return online != wasOnline ||
          (page != Page::SETTINGS && dirty && now - lastRendered >= settings.updateMs());
+}
+
+void replyActive(const char* message) {
+  if (network.isLan()) network.send(message); else Serial.print(message);
+}
+
+void acceptStatus(xte::Status incoming) {
+  const float previousVolume = status.volume;
+  confirmedVolume = incoming.volume;
+  if (volumePending && incoming.volumeAck != volumeSequence) incoming.volume = previousVolume;
+  else volumePending = false;
+  if (!incoming.hasAgents) {
+    incoming.agentCount = status.agentCount;
+    memcpy(incoming.agents, status.agents, sizeof(status.agents));
+  } else if (memcmp(incoming.agents, status.agents, sizeof(status.agents)) && page == Page::AGENTS) {
+    renderNow = true;
+  }
+  status = incoming;
+  if (page == Page::VOLUME &&
+      (std::isfinite(previousVolume) != std::isfinite(status.volume) ||
+       (std::isfinite(status.volume) && previousVolume != status.volume))) renderNow = true;
+  lastReceived = lastContact = millis();
+  haveStatus = true;
+  dirty = true;
+  replyActive("XTE: accepted\n");
+}
+
+bool handlePush(char* line, size_t length) {
+  StaticJsonDocument<768> doc;
+  if (!xte::readControl(line, length, doc)) return false;
+  if (doc["cmd"] == "heartbeat") {
+    lastContact = millis();
+    replyActive("XTE: pong\n");
+  } else if (doc["cmd"] == "agents") {
+    xte::Agent updates[xte::MAX_AGENTS] = {};
+    uint8_t count = 0;
+    if (!xte::readAgents(doc["agents"], updates, count) || !count) return true;
+    bool changed = false;
+    for (uint8_t i = 0; i < count; ++i) {
+      uint8_t index = 0;
+      while (index < status.agentCount && strcmp(status.agents[index].tool, updates[i].tool)) ++index;
+      if (index == status.agentCount) {
+        if (status.agentCount >= xte::MAX_AGENTS) return true;
+        ++status.agentCount;
+      }
+      changed |= memcmp(&status.agents[index], &updates[i], sizeof(xte::Agent)) != 0;
+      status.agents[index] = updates[i];
+    }
+    lastContact = millis();
+    if (changed) {
+      dirty = true;
+      if (page == Page::AGENTS) renderNow = true;
+    }
+    replyActive("XTE: accepted\n");
+  }
+  return true;
+}
+
+bool handleUsbLine(char* line, size_t length) {
+  if (tf.handle(line, length)) return true;
+  StaticJsonDocument<256> doc;
+  if (xte::readControl(line, length, doc)) {
+    if (doc["cmd"] == "hello") { network.info(); return true; }
+    if (doc["cmd"] == "network_commit") {
+      if (!doc["id"].is<uint32_t>()) return true;
+      network.info(doc["id"], tf.active() ? "busy" : network.commitConfig());
+      renderNow = page == Page::SETTINGS;
+      return true;
+    }
+  }
+  // USB remains available for configuration/TF tools in LAN mode, never for a
+  // second data stream. The firmware setting is the authority for routing.
+  return network.isLan() || handlePush(line, length);
+}
+
+void handleNetworkLine(char* line, size_t length) {
+  if (handlePush(line, length)) return;
+  xte::Status incoming;
+  if (xte::parseStatus(line, length, incoming)) acceptStatus(incoming);
 }
 
 void renderSleep() {
@@ -467,6 +628,7 @@ void sleepUntilPowerButton() {
 
 void enterSleep() {
   tf.abort();
+  network.stop();
   Serial.println("XTE: sleep requested");
   renderSleep();
   display.deepSleep();
@@ -534,10 +696,15 @@ void setup() {
   pinMode(12, OUTPUT);
   SPI.begin(8, 7, 10, 21);
   SdMan.begin();
+  network.begin();
   display.begin();
   Serial.printf("XTE: font reader bytes=%u path=%s\n", static_cast<unsigned>(sizeof(font)), xte::TfFont::PATH);
+  pinMode(USB_DETECT, INPUT);
+  usbPowered = digitalRead(USB_DETECT) == HIGH;
+  sampleBattery();
   render(false, true);
   Serial.println("XTE: ready protocol=2 max_payload=384");
+  network.info();
 }
 
 void loop() {
@@ -545,34 +712,21 @@ void loop() {
   input.update();
   handlePowerButton();
   if (!tf.active()) handlePageButtons();
+  network.tick(handleNetworkLine);
   // Bound each pass; coalesce queued frames into the latest valid snapshot.
   for (size_t i = 0; i < 512 && Serial.available(); ++i) {
     xte::Status incoming;
-    if (receiver.push(static_cast<char>(Serial.read()), incoming, handleTfLine)) {
-      const float previousVolume = status.volume;
-      confirmedVolume = incoming.volume;
-      if (volumePending && incoming.volumeAck != volumeSequence) {
-        incoming.volume = previousVolume;
-      } else {
-        volumePending = false;
-      }
-      status = incoming;
-      if (page == Page::VOLUME &&
-          (std::isfinite(previousVolume) != std::isfinite(status.volume) ||
-           (std::isfinite(status.volume) && previousVolume != status.volume))) renderNow = true;
-      lastReceived = millis();
-      haveStatus = true;
-      dirty = true;
-      Serial.println("XTE: accepted");
-    }
+    if (receiver.push(static_cast<char>(Serial.read()), incoming, handleUsbLine)) acceptStatus(incoming);
   }
+  if (millis() - batterySampledAt >= 30000) sampleBattery();
+  if (millis() - usbPolledAt >= 200) pollUsb();
   const uint32_t now = millis();
   if (volumePending && now - volumeRequestedAt >= 2000) {
     volumePending = false;
     status.volume = confirmedVolume;
     if (page == Page::VOLUME) renderNow = true;
   }
-  const bool online = haveStatus && now - lastReceived < OFFLINE_MS;
+  const bool online = haveStatus && now - lastContact < OFFLINE_MS;
   if (online != wasOnline) dirty = true;
   if (!tf.active() && (forceFull || renderNow || backgroundRenderDue(now, online))) {
     render(online, forceFull);

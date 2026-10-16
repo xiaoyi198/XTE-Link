@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime
 import json
+import queue
 import os
 from pathlib import Path
 import socket
@@ -25,10 +26,10 @@ import serial
 from serial.tools import list_ports
 
 if __package__:
-    from .protocol import encode_status
+    from .protocol import encode_status, encode_agent
     from .amd_gpu import collect_amd_gpu
 else:
-    from protocol import encode_status
+    from protocol import encode_status, encode_agent
     from amd_gpu import collect_amd_gpu
 
 
@@ -43,9 +44,15 @@ class AgentManager:
         self.status_path = Path(status_path or os.environ.get("XTE_AGENT_STATUS", default_root / "agents.json"))
         self.action_path = Path(action_path or os.environ.get("XTE_AGENT_ACTIONS", default_root / "actions.jsonl"))
         self._overrides = {}
+        self._override_requests = {}
+        self._handled = set()
+        self._process_cache = {}
+        self._process_at = 0
+        self.changed = threading.Event()
+        self._lock = threading.RLock()
         # Explicit test/bridge paths stay deterministic; the live adapter is
         # enabled for the normal default manager only.
-        self._dsh = dsh_adapter if dsh_adapter is not None else (None if status_path is not None else DshApprovalAdapter())
+        self._dsh = dsh_adapter if dsh_adapter is not None else (None if status_path is not None else DshApprovalAdapter(changed=self.changed))
 
     @staticmethod
     def _process_running(tool):
@@ -70,11 +77,17 @@ class AgentManager:
         if tool not in cls.TOOLS or state not in cls.STATES or not isinstance(request_id, str) or \
                 not isinstance(text, str) or len(request_id) > 36 or len(text) > 48:
             return None
+        if any(not 32 <= ord(ch) <= 126 for ch in request_id + text):
+            return None
         if state == "ask" and not request_id:
             return None
         return {"tool": tool, "state": state, "id": request_id, "text": text}
 
     def collect(self):
+        with self._lock:
+            return self._collect()
+
+    def _collect(self):
         entries = {}
         live_dsh = self._dsh.snapshot() if self._dsh is not None else None
         if live_dsh:
@@ -96,15 +109,26 @@ class AgentManager:
                                 entries[parsed["tool"]] = parsed
             except (OSError, UnicodeError, json.JSONDecodeError):
                 pass
+        # Process existence is only a fallback, and expensive to query on every
+        # file/event check. Live requests and the bridge take precedence.
+        now = time.monotonic()
+        if not self._process_cache or now >= self._process_at:
+            self._process_cache = {tool: self._process_running(tool) for tool in self.TOOLS}
+            self._process_at = now + 5
+        if live_dsh:
+            entries["dsh"] = live_dsh
         for tool in self.TOOLS:
             if tool not in entries:
-                entries[tool] = {"tool": tool, "state": "running" if self._process_running(tool) else "offline",
+                entries[tool] = {"tool": tool, "state": "running" if self._process_cache[tool] else "offline",
                                  "id": "", "text": ""}
             # A live DSH event stream is authoritative.  In particular, do
             # not let the immediate post-action `done` marker hide a later
             # approval/request delivered by the same stream.
             if tool in self._overrides and not (tool == "dsh" and self._dsh is not None):
-                entries[tool] = dict(self._overrides[tool])
+                if entries[tool]["state"] == "ask" and entries[tool]["id"] != self._override_requests.get(tool, entries[tool]["id"]):
+                    del self._overrides[tool]
+                else:
+                    entries[tool] = dict(self._overrides[tool])
         return [entries[tool] for tool in self.TOOLS]
 
     def close(self):
@@ -132,6 +156,8 @@ class AgentManager:
             return False
 
     def action(self, tool, request_id, action):
+        if (tool, request_id) in self._handled:
+            return False
         current = {item["tool"]: item for item in self.collect()}.get(tool)
         if not current or current["state"] != "ask" or current["id"] != request_id:
             return False
@@ -141,6 +167,9 @@ class AgentManager:
             accepted = self._desktop_key(tool, action)
         if not accepted:
             return False
+        self._handled.add((tool, request_id))
+        if len(self._handled) > 128:
+            self._handled = {(tool, request_id)}
         try:
             self.action_path.parent.mkdir(parents=True, exist_ok=True)
             with self.action_path.open("a", encoding="utf-8") as stream:
@@ -148,9 +177,12 @@ class AgentManager:
                                          "time": datetime.now().isoformat(timespec="seconds")},
                                         separators=(",", ":")) + "\n")
         except OSError:
-            return False
+            print("Agent action accepted; action log unavailable", file=sys.stderr)
         if self._dsh is None or tool != "dsh":
-            self._overrides[tool] = {"tool": tool, "state": "done", "id": "", "text": action.upper()}
+            with self._lock:
+                self._override_requests[tool] = request_id
+                self._overrides[tool] = {"tool": tool, "state": "done", "id": "", "text": action.upper()}
+        self.changed.set()
         return True
 
 
@@ -244,13 +276,14 @@ class _WebSocket:
 class DshApprovalAdapter:
     """Read and answer live DSH approval/request Remote Events."""
 
-    def __init__(self, host=None, port=None, credentials_path=None):
+    def __init__(self, host=None, port=None, credentials_path=None, changed=None):
         self.host = host or os.environ.get("XTE_DSH_HOST", "127.0.0.1")
         self.port = int(port or os.environ.get("XTE_DSH_PORT", "3080"))
         self.credentials_path = Path(credentials_path or
                                      (Path(os.environ.get("USERPROFILE", Path.home())) / ".dsh" / ".credentials.yaml"))
         self._lock = threading.Lock()
         self._pending = None
+        self.changed = changed or threading.Event()
         self._stop = threading.Event()
         self._client_id = ""
         self._thread = threading.Thread(target=self._run, name="xte-dsh-approval", daemon=True)
@@ -283,6 +316,7 @@ class DshApprovalAdapter:
         with self._lock:
             if self._pending and self._pending["event_id"] == request_id:
                 self._pending = None
+        self.changed.set()
         return True
 
     def _run(self):
@@ -330,6 +364,7 @@ class DshApprovalAdapter:
             with self._lock:
                 if self._pending and self._pending["event_id"] == frame.get("eventId"):
                     self._pending = None
+            self.changed.set()
             return
         if frame_type != "waterfall" or frame.get("event") != "approval/request":
             return
@@ -345,6 +380,7 @@ class DshApprovalAdapter:
         with self._lock:
             self._pending = {"event_id": str(frame.get("eventId", "")),
                              "client_id": str(self._client_id), "text": text}
+        self.changed.set()
 
     def _post_result(self, client_id, event_id, outcome):
         cookie = self._cookie()
@@ -484,7 +520,7 @@ def open_serial(port):
     return connection
 
 
-def volume_confirmation(line, volume, snapshot):
+def volume_confirmation(line, volume, snapshot, seen=None):
     parts = line.strip().split()
     if len(parts) not in (3, 4) or parts[:2] != ["XTE:", "volume_delta"]:
         return None
@@ -496,7 +532,16 @@ def volume_confirmation(line, volume, snapshot):
     if delta not in (-10, -5, -1, 1, 5, 10) or not 0 <= sequence <= 0xffffffff:
         return None
     confirmed = dict(snapshot)
-    confirmed["volume"] = volume.adjust(delta)
+    if sequence and seen is not None and sequence in seen:
+        previous_delta, confirmed["volume"] = seen[sequence]
+        if previous_delta != delta:
+            return None
+    else:
+        confirmed["volume"] = volume.adjust(delta)
+        if sequence and seen is not None:
+            seen[sequence] = (delta, confirmed["volume"])
+            if len(seen) > 128:
+                del seen[next(iter(seen))]
     confirmed["volume_ack"] = sequence
     return confirmed
 
@@ -515,39 +560,149 @@ def agent_confirmation(line, manager, snapshot):
     return confirmed
 
 
-def main(argv=None, stop_event=None, on_connection=None):
+class MetricSampler:
+    """One bounded worker; slow GPU/ADL sampling never owns the transport."""
+    def __init__(self, wake):
+        self.wake = wake
+        self.requested = threading.Event()
+        self.stopped = threading.Event()
+        self.lock = threading.Lock()
+        self.result = None
+        self.thread = threading.Thread(target=self._run, name="xte-sensors", daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        try:
+            psutil.cpu_percent(interval=None)
+            self.stopped.wait(1)
+            while not self.stopped.is_set():
+                if not self.requested.wait(0.1):
+                    continue
+                self.requested.clear()
+                try:
+                    result = collect_status()
+                except Exception as exc:
+                    print(f"Sensor collection failed: {type(exc).__name__}", file=sys.stderr)
+                    continue
+                with self.lock:
+                    self.result = result
+                self.wake.set()
+        finally:
+            self.wake.set()
+
+    def request(self):
+        self.requested.set()
+
+    def take(self):
+        with self.lock:
+            result, self.result = self.result, None
+            return result
+
+    def close(self):
+        self.stopped.set(); self.requested.set()
+        self.thread.join(timeout=3)
+
+
+class AgentFeed:
+    """Event wakeups for DSH; 250ms checks for the existing JSON bridge."""
+    def __init__(self, manager, wake):
+        self.manager, self.wake = manager, wake
+        self.stopped = threading.Event()
+        self.lock = threading.Lock()
+        self.entries = []
+        self.thread = threading.Thread(target=self._run, name="xte-agent-feed", daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        while not self.stopped.is_set():
+            self.manager.changed.clear()
+            try:
+                entries = self.manager.collect()
+                with self.lock:
+                    changed = entries != self.entries
+                    self.entries = entries
+                if changed:
+                    self.wake.set()
+            except (OSError, ValueError) as exc:
+                print(f"Agent collection failed: {type(exc).__name__}", file=sys.stderr)
+            self.manager.changed.wait(0.25)
+
+    def get(self):
+        with self.lock:
+            return [dict(item) for item in self.entries]
+
+    def close(self):
+        self.stopped.set(); self.manager.changed.set()
+        self.thread.join(timeout=3)
+
+
+def advance_deadline(deadline, now, interval):
+    """Skip missed ticks without drift, bursts, or moving ticks on AI events."""
+    if deadline <= now:
+        deadline += (int((now - deadline) // interval) + 1) * interval
+    return deadline
+
+
+def status_frame(snapshot, events):
+    value = dict(snapshot)
+    if events:
+        value.pop("agents", None)
+    try:
+        return encode_status(value)
+    except ValueError:
+        # Older firmware cannot receive split agent events. Retain telemetry
+        # and report the compatibility limit instead of killing the worker.
+        if events or not value.get("agents"):
+            raise
+        value.pop("agents")
+        print("Legacy firmware agent frame too large; update firmware for split events", file=sys.stderr)
+        return encode_status(value)
+
+
+def main(argv=None, stop_event=None, on_connection=None, on_device=None, commands=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", help="COM port (e.g. COM3); omit to print JSON")
     parser.add_argument("--list-ports", action="store_true")
     parser.add_argument("--demo", action="store_true", help="use fixed sample data")
     parser.add_argument("--once", action="store_true", help="send/print one frame and exit")
     parser.add_argument("--interval", type=float, default=5.0)
+    parser.add_argument("--mode", choices=("auto", "usb", "lan"), help="follow firmware, USB only, or LAN only")
+    parser.add_argument("--host", help="manual LAN address; still requires a USB-paired identity")
+    parser.add_argument("--config", help="driver configuration path")
     args = parser.parse_args(argv)
     def wait(seconds):
         if stop_event is None:
             time.sleep(seconds)
         else:
-            stop_event.wait(seconds)
-
-    def report(connected):
-        if on_connection is not None:
-            on_connection(connected, args.port)
+            wake.wait(seconds)
+            wake.clear()
     if args.list_ports:
         for port in list_ports.comports():
             print(f"{port.device}: {port.description}")
         return 0
-    if not 5 <= args.interval <= 10:
-        parser.error("--interval must be between 5 and 10 seconds (device timeout: 15 seconds)")
-    if not args.demo:
+    if not 5 <= args.interval <= 3600:
+        parser.error("--interval must be between 5 and 3600 seconds")
+    wake = threading.Event()
+    if not args.demo and args.once:
         try:
             psutil.cpu_percent(interval=None)
         except (OSError, psutil.Error):
             pass
         wait(1)  # Discard psutil's first nonblocking CPU sample.
-    connection = None
+    from pc_driver.network import Session, config_path
+    session = Session(open_serial, args.config or config_path(), args.mode or "usb", args.port,
+                      args.host, on_device) if args.port or args.mode or args.host else None
     volume = WindowsVolume()
     agents = AgentManager()
-    next_sample = 0.0
+    sampler = MetricSampler(wake) if not args.demo and not args.once else None
+    feed = AgentFeed(agents, wake) if not args.demo and not args.once else None
+    next_sample = time.monotonic()
+    next_heartbeat = 0.0
+    epoch = -1
+    source = None
+    reported = None
+    sent_agents = {}
+    seen_volume = {}
     pending_once = False
     exit_at = 0.0
     device_output = ""
@@ -555,24 +710,44 @@ def main(argv=None, stop_event=None, on_connection=None):
     try:
         while stop_event is None or not stop_event.is_set():
             now = time.monotonic()
-            if args.port and connection is None:
-                try:
-                    connection = open_serial(args.port)
-                    next_sample = 0.0
-                    device_output = ""
-                    print(f"Connected: {args.port}", file=sys.stderr)
-                    report(True)
-                except (OSError, serial.SerialException) as exc:
-                    print(f"Serial unavailable: {exc}", file=sys.stderr)
-                    report(False)
-                    if args.once:
-                        return 1
-                    wait(1)
-                    continue
             try:
+                if session:
+                    session.tick()
+                    state = (bool(session.active), session.label)
+                    if state != reported:
+                        reported = state
+                        if on_connection:
+                            on_connection(*state)
+                    if commands:
+                        try:
+                            device, ssid, password, callback = commands.get_nowait()
+                        except queue.Empty:
+                            pass
+                        else:
+                            try:
+                                session.provision(device, ssid, password)
+                                callback(None)
+                            except (OSError, ValueError) as exc:
+                                callback(str(exc))
+                    if session.epoch != epoch:
+                        epoch = session.epoch
+                        sent_agents.clear()
+                        if source is not session.active:
+                            device_output = ""
+                            seen_volume.clear()
+                            next_sample = now
+                        source = session.active
+                        next_heartbeat = 0
+                        if snapshot and session.active:
+                            session.write(status_frame(snapshot, session.supports_events))
+                    if not session.active:
+                        if args.once:
+                            return 1
+                        wait(0.05)
+                        continue
                 # Drain SDK logs so USB transmit buffers cannot block refreshes.
-                if connection and connection.in_waiting:
-                    data = connection.read(min(connection.in_waiting, 4096))
+                if session and session.in_waiting:
+                    data = session.read(min(session.in_waiting, 4096))
                     text = data.decode("utf-8", "replace")
                     sys.stderr.write(text)
                     device_output += text
@@ -582,41 +757,74 @@ def main(argv=None, stop_event=None, on_connection=None):
                         device_output = ""
                     for line in lines:
                         if not args.demo and snapshot is not None:
-                            confirmed = volume_confirmation(line, volume, snapshot)
+                            confirmed = volume_confirmation(line, volume, snapshot, seen_volume)
                             if confirmed is not None:
-                                frame = encode_status(confirmed)
-                                if connection.write(frame) != len(frame):
+                                frame = status_frame(confirmed, session.supports_events)
+                                if session.write(frame) != len(frame):
                                     raise serial.SerialException("incomplete serial write")
                                 snapshot = confirmed
                                 print(f"Volume confirmed: {confirmed['volume']}%", file=sys.stderr)
                             confirmed = agent_confirmation(line, agents, snapshot)
                             if confirmed is not None:
-                                frame = encode_status(confirmed)
-                                if connection.write(frame) != len(frame):
+                                frame = status_frame(confirmed, session.supports_events)
+                                if session.write(frame) != len(frame):
                                     raise serial.SerialException("incomplete serial write")
                                 snapshot = confirmed
+                                if session.supports_events:
+                                    for entry in confirmed["agents"]:
+                                        session.write(encode_agent(entry))
+                                    sent_agents = {entry["tool"]: entry for entry in confirmed["agents"]}
                                 print("Agent action accepted", file=sys.stderr)
                 if not pending_once and now >= next_sample:
-                    snapshot = demo_status() if args.demo else collect_status(volume, agents.collect())
-                    frame = encode_status(snapshot)
-                    if connection:
-                        if connection.write(frame) != len(frame):
-                            raise serial.SerialException("incomplete serial write")
+                    next_sample = advance_deadline(next_sample, now, args.interval)
+                    if sampler:
+                        sampler.request()
                     else:
-                        print(frame.decode("ascii").rstrip(), flush=True)
-                    next_sample = now + args.interval
-                    if args.once:
-                        if connection is None:
-                            return 0
-                        pending_once, exit_at = True, now + 5
+                        snapshot = demo_status() if args.demo else collect_status(volume, agents.collect())
+                        if session:
+                            session.write(status_frame(snapshot, session.supports_events))
+                        else:
+                            print(encode_status(snapshot).decode("ascii").rstrip(), flush=True)
+                        if args.once:
+                            if session is None:
+                                return 0
+                            pending_once, exit_at = True, now + 5
+                if sampler:
+                    sample = sampler.take()
+                    if sample:
+                        sample["volume"] = volume.get_percent()
+                        if snapshot and "volume_ack" in snapshot:
+                            sample["volume_ack"] = snapshot["volume_ack"]
+                        sample["agents"] = feed.get()
+                        snapshot = sample
+                        if session:
+                            session.write(status_frame(snapshot, session.supports_events))
+                        else:
+                            print(encode_status(snapshot).decode("ascii").rstrip(), flush=True)
+                entries = demo_status()["agents"] if args.demo else feed.get() if feed else agents.collect()
+                # A watcher snapshot collected before a successful action must
+                # not resurrect that request while its next check is pending.
+                entries = [sent_agents.get(entry["tool"], entry)
+                           if entry["state"] == "ask" and (entry["tool"], entry["id"]) in agents._handled
+                           else entry for entry in entries]
+                if session:
+                    if session.supports_events:
+                        for entry in entries:
+                            if sent_agents.get(entry["tool"]) != entry:
+                                session.write(encode_agent(entry))
+                                sent_agents[entry["tool"]] = dict(entry)
+                    elif snapshot and entries != list(sent_agents.values()):
+                        snapshot["agents"] = entries
+                        if sent_agents:
+                            session.write(status_frame(snapshot, False))
+                        sent_agents = {entry["tool"]: dict(entry) for entry in entries}
+                    if session.supports_events and now >= next_heartbeat:
+                        session.write(b'{"v":2,"cmd":"heartbeat"}\n')
+                        next_heartbeat = now + 5
                 if pending_once and now >= exit_at:
                     return 0
             except (OSError, serial.SerialException) as exc:
-                print(f"Serial disconnected: {exc}", file=sys.stderr)
-                if connection:
-                    connection.close()
-                connection = None
-                report(False)
+                print(f"Connection unavailable: {exc}", file=sys.stderr)
                 if args.once:
                     return 1
             wait(0.05)
@@ -624,8 +832,12 @@ def main(argv=None, stop_event=None, on_connection=None):
     except KeyboardInterrupt:
         return 0
     finally:
-        if connection:
-            connection.close()
+        if session:
+            session.close()
+        if sampler:
+            sampler.close()
+        if feed:
+            feed.close()
         agents.close()
 
 

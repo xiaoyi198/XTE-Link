@@ -25,6 +25,7 @@
 !/pc_driver/amd_gpu.py
 !/pc_driver/driver.py
 !/pc_driver/protocol.py
+!/pc_driver/network.py
 !/pc_driver/tf.py
 !/pc_driver/tray.py
 !/pc_driver/requirements.txt
@@ -52,6 +53,12 @@
 !/artifacts/pc-driver/20261014-001309/SHA256SUMS.txt
 !/artifacts/pc-driver/20261014-001309/build-requirements.txt
 !/artifacts/pc-driver/20261014-001309/使用说明.txt
+!/artifacts/pc-driver/20261014-011634/
+/artifacts/pc-driver/20261014-011634/*
+!/artifacts/pc-driver/20261014-011634/XTE-Link.exe
+!/artifacts/pc-driver/20261014-011634/SHA256SUMS.txt
+!/artifacts/pc-driver/20261014-011634/build-requirements.txt
+!/artifacts/pc-driver/20261014-011634/使用说明.txt
 
 # Current device application image
 !/artifacts/firmware/
@@ -60,3 +67,13 @@
 /artifacts/firmware/hints2-20261013/*
 !/artifacts/firmware/hints2-20261013/firmware.bin
 !/artifacts/firmware/hints2-20261013/SHA256SUMS.txt
+!/artifacts/firmware/lan-push-20261014-011330/
+/artifacts/firmware/lan-push-20261014-011330/*
+!/artifacts/firmware/lan-push-20261014-011330/firmware.bin
+!/artifacts/firmware/lan-push-20261014-011330/SHA256SUMS.txt
+!/artifacts/firmware/lan-push-20261014-011330/manifest.json
+!/artifacts/firmware/usb-power-20261016-222955/
+/artifacts/firmware/usb-power-20261016-222955/*
+!/artifacts/firmware/usb-power-20261016-222955/firmware.bin
+!/artifacts/firmware/usb-power-20261016-222955/SHA256SUMS.txt
+!/artifacts/firmware/usb-power-20261016-222955/manifest.json

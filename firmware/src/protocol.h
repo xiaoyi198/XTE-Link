@@ -27,6 +27,7 @@ struct Status {
   uint32_t volumeAck = 0;
   Agent agents[MAX_AGENTS] = {};
   uint8_t agentCount = 0;
+  bool hasAgents = false;
 };
 
 struct JsonReader {
@@ -64,12 +65,45 @@ inline bool readAgentText(JsonVariantConst value, char* output, size_t capacity,
   }
   const char* text = value.as<const char*>();
   if (!text) return false;
-  if (strlen(text) >= capacity) return false;
+  if (strlen(text) >= capacity || value.as<JsonString>().size() != strlen(text)) return false;
   for (const char* ch = text; *ch; ++ch) {
     if (*ch < 32 || *ch > 126) return false;
   }
   strcpy(output, text);
   return true;
+}
+
+inline bool readAgents(JsonVariantConst value, Agent* output, uint8_t& count) {
+  JsonArrayConst agents = value.as<JsonArrayConst>();
+  if (agents.isNull() || agents.size() > MAX_AGENTS) return false;
+  count = 0;
+  for (JsonObjectConst source : agents) {
+    Agent& target = output[count];
+    if (!readAgentText(source["tool"], target.tool, sizeof(target.tool), true) ||
+        !readAgentText(source["state"], target.state, sizeof(target.state), true) ||
+        !readAgentText(source["id"], target.requestId, sizeof(target.requestId), false) ||
+        !readAgentText(source["text"], target.text, sizeof(target.text), false)) return false;
+    if (strcmp(target.tool, "dsh") && strcmp(target.tool, "codex")) return false;
+    bool known = false;
+    for (const char* state : {"offline", "idle", "running", "ask", "done", "error"})
+      if (!strcmp(target.state, state)) known = true;
+    if (!known || (!strcmp(target.state, "ask") && !target.requestId[0])) return false;
+    for (uint8_t i = 0; i < count; ++i) if (!strcmp(output[i].tool, target.tool)) return false;
+    ++count;
+  }
+  return true;
+}
+
+inline bool readControl(char* payload, size_t length, JsonDocument& doc) {
+  if (!length || length > MAX_PAYLOAD_BYTES || memchr(payload, '\0', length)) return false;
+  JsonReader reader{payload, length};
+  if (deserializeJson(doc, reader, DeserializationOption::NestingLimit(4))) return false;
+  while (reader.position < length) {
+    const char ch = payload[reader.position++];
+    if (ch != ' ' && ch != '\t' && ch != '\r') return false;
+  }
+  return doc.is<JsonObject>() && doc["v"].is<int>() && doc["v"].as<int>() == 2 &&
+         doc["cmd"].is<const char*>();
 }
 
 inline bool parseStatus(char* payload, size_t length, Status& result) {
@@ -115,17 +149,8 @@ inline bool parseStatus(char* payload, size_t length, Status& result) {
   if (std::isfinite(candidate.memoryUsed) && std::isfinite(candidate.memoryTotal) &&
       candidate.memoryUsed > candidate.memoryTotal) return false;
   if (doc.containsKey("agents")) {
-    JsonArrayConst agents = doc["agents"].as<JsonArrayConst>();
-    if (agents.isNull() || agents.size() > MAX_AGENTS) return false;
-    for (JsonObjectConst source : agents) {
-      if (candidate.agentCount >= MAX_AGENTS) return false;
-      Agent& target = candidate.agents[candidate.agentCount];
-      if (!readAgentText(source["tool"], target.tool, sizeof(target.tool), true) ||
-          !readAgentText(source["state"], target.state, sizeof(target.state), true) ||
-          !readAgentText(source["id"], target.requestId, sizeof(target.requestId), false) ||
-          !readAgentText(source["text"], target.text, sizeof(target.text), false)) return false;
-      ++candidate.agentCount;
-    }
+    candidate.hasAgents = true;
+    if (!readAgents(doc["agents"], candidate.agents, candidate.agentCount)) return false;
   }
   strcpy(candidate.host, host);
   strcpy(candidate.time, stamp);
@@ -135,6 +160,7 @@ inline bool parseStatus(char* payload, size_t length, Status& result) {
 
 class LineReceiver {
  public:
+  void reset() { length = 0; overflow = false; }
   bool push(char ch, Status& result, bool (*handleLine)(char*, size_t) = nullptr) {
     if (ch == '\n') {
       const bool handled = !overflow && handleLine && handleLine(buffer, length);
