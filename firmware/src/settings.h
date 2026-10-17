@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 namespace xte {
-enum class Page : uint8_t { STATUS, VOLUME, AGENTS, SETTINGS };
+enum class Page : uint8_t { STATUS, VOLUME, AGENTS, SETTINGS, CLASH };
 
 // Only the three editable preferences are persisted, as one versioned NVS value.
 struct Settings {

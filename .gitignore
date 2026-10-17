@@ -24,6 +24,11 @@
 !/pc_driver/__init__.py
 !/pc_driver/amd_gpu.py
 !/pc_driver/driver.py
+!/pc_driver/codex_ipc.py
+!/pc_driver/clash_verge.py
+!/pc_driver/clash_panel.py
+!/pc_driver/windows_proxy.py
+!/pc_driver/LICENSE-codex-mobile
 !/pc_driver/protocol.py
 !/pc_driver/network.py
 !/pc_driver/sleep_image.py
@@ -43,6 +48,25 @@
 !/patches/open-x4-sdk-sdcard-format.patch
 !/patches/LICENSE-open-x4-sdk
 
+# Optional Clash Verge bridge sources; build products remain local.
+!/compat/
+/compat/*
+!/compat/clash-verge/
+/compat/clash-verge/*
+!/compat/clash-verge/bridge.rs
+!/compat/clash-verge/verge_backend.rs
+!/compat/clash-verge/make_patch.py
+!/compat/clash-verge/verge-2.5.8.patch
+!/compat/clash-verge/README.md
+!/compat/clash-verge/test_client.py
+!/compat/clash-verge/harness/
+/compat/clash-verge/harness/*
+!/compat/clash-verge/harness/Cargo.toml
+!/compat/clash-verge/harness/Cargo.lock
+!/compat/clash-verge/harness/src/
+/compat/clash-verge/harness/src/*
+!/compat/clash-verge/harness/src/main.rs
+
 # Current Windows EXE bundle supplied by the user
 !/artifacts/
 /artifacts/*
@@ -54,6 +78,27 @@
 !/artifacts/pc-driver/20261016-233355/SHA256SUMS.txt
 !/artifacts/pc-driver/20261016-233355/build-requirements.txt
 !/artifacts/pc-driver/20261016-233355/使用说明.txt
+!/artifacts/pc-driver/20261017-184623/
+/artifacts/pc-driver/20261017-184623/*
+!/artifacts/pc-driver/20261017-184623/XTE-Link.exe
+!/artifacts/pc-driver/20261017-184623/SHA256SUMS.txt
+!/artifacts/pc-driver/20261017-184623/build-requirements.txt
+!/artifacts/pc-driver/20261017-184623/使用说明.txt
+!/artifacts/pc-driver/20261017-184623/LICENSE-codex-mobile.txt
+!/artifacts/pc-driver/20261017-230623/
+/artifacts/pc-driver/20261017-230623/*
+!/artifacts/pc-driver/20261017-230623/XTE-Link.exe
+!/artifacts/pc-driver/20261017-230623/SHA256SUMS.txt
+!/artifacts/pc-driver/20261017-230623/build-requirements.txt
+!/artifacts/pc-driver/20261017-230623/使用说明.txt
+!/artifacts/pc-driver/20261017-230623/LICENSE-codex-mobile.txt
+!/artifacts/pc-driver/20261017-232911/
+/artifacts/pc-driver/20261017-232911/*
+!/artifacts/pc-driver/20261017-232911/XTE-Link.exe
+!/artifacts/pc-driver/20261017-232911/SHA256SUMS.txt
+!/artifacts/pc-driver/20261017-232911/build-requirements.txt
+!/artifacts/pc-driver/20261017-232911/使用说明.txt
+!/artifacts/pc-driver/20261017-232911/LICENSE-codex-mobile.txt
 
 # Current device application image
 !/artifacts/firmware/
@@ -68,3 +113,13 @@
 !/artifacts/firmware/app-menu-half-20261017-132347/firmware.bin
 !/artifacts/firmware/app-menu-half-20261017-132347/SHA256SUMS.txt
 !/artifacts/firmware/app-menu-half-20261017-132347/manifest.json
+!/artifacts/firmware/clash-panel-20261017-230259/
+/artifacts/firmware/clash-panel-20261017-230259/*
+!/artifacts/firmware/clash-panel-20261017-230259/firmware.bin
+!/artifacts/firmware/clash-panel-20261017-230259/SHA256SUMS.txt
+!/artifacts/firmware/clash-panel-20261017-230259/manifest.json
+!/artifacts/firmware/clash-controls-20261017-232833/
+/artifacts/firmware/clash-controls-20261017-232833/*
+!/artifacts/firmware/clash-controls-20261017-232833/firmware.bin
+!/artifacts/firmware/clash-controls-20261017-232833/SHA256SUMS.txt
+!/artifacts/firmware/clash-controls-20261017-232833/manifest.json

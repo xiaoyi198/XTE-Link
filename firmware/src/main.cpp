@@ -14,6 +14,7 @@
 #include "tf_font.h"
 #include "settings.h"
 #include "network.h"
+#include "clash_panel.h"
 
 namespace {
 // SDK requires constructor pins; these values follow the verified X4 contract.
@@ -46,15 +47,20 @@ bool volumePending = false;
 float confirmedVolume = NAN;
 using xte::Page;
 Page page = Page::STATUS;
-bool appMenu = true;  // page also remembers the selected launcher tile.
+bool appMenu = true;
+constexpr uint8_t MENU_PAGE_COUNT = 2;
+constexpr uint8_t MENU_TILE_COUNT = 4;
+uint8_t menuPage = 0;
+uint8_t menuSelection[MENU_PAGE_COUNT] = {};
 uint8_t selectedAgent = 0;
+xte::ClashPanel clash;
 xte::Settings settings;
 enum class SettingsMode : uint8_t { LIST, EDIT, INFO, RESET };
 SettingsMode settingsMode = SettingsMode::LIST;
 uint8_t selectedSetting = 0;
 uint8_t draftSetting = 0;
 const char* settingsMessage = nullptr;
-constexpr const char* FIRMWARE_VERSION = "app-menu-half-20261017";
+constexpr const char* FIRMWARE_VERSION = "clash-controls-20261017";
 constexpr uint8_t SETTING_COUNT = 6;
 constexpr uint32_t POWER_HOLD_MS = 1500;
 // The pinned SDK has no power-latch API; GPIO13 follows the verified X4 contract.
@@ -183,15 +189,44 @@ void metric(int16_t x, int16_t y, const char* label, const char* value) {
 
 // Icons use the existing GFX primitives and the SDK's single framebuffer.
 void renderAppMenu() {
-  constexpr const char* labels[] = {"电脑状态", "系统音量", "助手控制", "设置"};
-  for (uint8_t i = 0; i < 4; ++i) {
+  constexpr const char* labels[MENU_PAGE_COUNT][MENU_TILE_COUNT] = {
+    {"电脑状态", "系统音量", "助手控制", "设置"},
+    {"快捷功能", "Clash Verge", "占位二", "占位三"},
+  };
+  for (uint8_t i = 0; i < MENU_TILE_COUNT; ++i) {
     const int16_t x = 40 + (i % 2) * 368;
     const int16_t y = 104 + (i / 2) * 144;
-    const bool selected = i == static_cast<uint8_t>(page);
+    const bool selected = i == menuSelection[menuPage];
     graphics.drawRect(x, y, 348, 132, 0);
     if (selected) graphics.drawRect(x + 3, y + 3, 342, 126, 0);
     const int16_t ix = x + 24, iy = y + 32;
-    if (i == 0) {
+    if (menuPage == 1) {
+      if (i == 0) {
+        // Lightning: shortcut placeholder, using the existing GFX primitives.
+        graphics.fillRect(ix + 30, iy, 20, 6, 0);
+        for (int j = 0; j < 5; ++j) {
+          graphics.fillRect(ix + 26 - j * 4, iy + 6 + j * 5, 20, 5, 0);
+          graphics.fillRect(ix + 26 - j * 4, iy + 31 + j * 5, 20, 5, 0);
+        }
+      } else if (i == 1) {
+        // Connected nodes identify the Clash Verge controller entry.
+        graphics.drawRect(ix, iy + 20, 20, 20, 0);
+        graphics.drawRect(ix + 44, iy, 20, 20, 0);
+        graphics.drawRect(ix + 44, iy + 40, 20, 20, 0);
+        graphics.drawFastHLine(ix + 20, iy + 30, 15, 0);
+        graphics.drawFastVLine(ix + 34, iy + 10, 41, 0);
+        graphics.drawFastHLine(ix + 34, iy + 10, 10, 0);
+        graphics.drawFastHLine(ix + 34, iy + 50, 10, 0);
+      } else if (i == 2) {
+        graphics.drawRect(ix + 10, iy, 44, 58, 0);
+        for (int j = 0; j < 3; ++j)
+          graphics.drawFastHLine(ix + 20, iy + 16 + j * 12, 24, 0);
+      } else {
+        graphics.drawRect(ix + 6, iy + 2, 52, 52, 0);
+        graphics.fillRect(ix + 29, iy + 14, 6, 28, 0);
+        graphics.fillRect(ix + 18, iy + 25, 28, 6, 0);
+      }
+    } else if (i == 0) {
       graphics.drawRect(ix, iy, 64, 44, 0);
       graphics.fillRect(ix + 30, iy + 44, 4, 10, 0);
       graphics.fillRect(ix + 16, iy + 54, 32, 3, 0);
@@ -214,9 +249,20 @@ void renderAppMenu() {
         graphics.fillRect(ix + (j == 1 ? 40 : 12), iy + 4 + j * 20, 10, 13, 0);
       }
     }
-    font.draw(graphics, x + 112, y + 42, labels[i], 220);
+    if (menuPage == 1 && i == 1)
+      text(x + 112, y + 50, 3, labels[menuPage][i]);  // 198 px; TF text would be 250 px.
+    else font.draw(graphics, x + 112, y + 42, labels[menuPage][i], 220);
     if (selected) graphics.fillRect(x + 112, y + 99, 64, 4, 0);
   }
+  for (uint8_t i = 0; i < MENU_PAGE_COUNT; ++i) {
+    const int16_t x = 382 + i * 28;
+    if (i == menuPage) graphics.fillRect(x, 386, 8, 8, 0);
+    else graphics.drawRect(x, 386, 8, 8, 0);
+  }
+  char indicator[8];
+  snprintf(indicator, sizeof(indicator), "%u/%u", static_cast<unsigned>(menuPage + 1),
+           static_cast<unsigned>(MENU_PAGE_COUNT));
+  text(716, 382, 2, indicator);
 }
 
 void renderStatusPage() {
@@ -352,6 +398,47 @@ void renderSettingsPage() {
   }
 }
 
+void renderClashPage() {
+  text(48, 108, 3, "Clash Verge");
+  const char* title = !strcmp(clash.view, "profiles") ? "订阅列表" :
+                      !strcmp(clash.view, "groups") ? "策略组" :
+                      !strcmp(clash.view, "nodes") ? "节点选择" : "控制面板";
+  uiText(310, 96, title, 350);
+  char indicator[16];
+  snprintf(indicator, sizeof(indicator), "%u/%u", static_cast<unsigned>(clash.page + 1),
+           static_cast<unsigned>(clash.pages));
+  text(668, 108, 2, indicator);
+  if (clash.confirming) {
+    const bool isSwitch = !strcmp(clash.view, "home") && (clash.selected == 2 || clash.selected == 3);
+    uiText(48, 160, isSwitch ? "确认切换此开关？" : "确认执行此操作？", 704);
+    const char* name = clash.rows[clash.selected].name;
+    if (isSwitch && (strstr(name, "开启") || strstr(name, "关闭"))) {
+      const bool enabled = strstr(name, "开启") != nullptr;
+      const char* target = clash.selected == 3 ? (enabled ? "TUN：开启 -> 关闭" : "TUN：关闭 -> 开启") :
+                                              (enabled ? "系统代理：开启 -> 关闭" : "系统代理：关闭 -> 开启");
+      uiText(48, 224, target, 704);
+    } else uiText(48, 224, name, 704);
+    uiText(48, 300, "确认执行  返回取消", 704);
+  } else if (clash.pending || !clash.complete) {
+    uiText(48, 182, clash.message[0] ? clash.message : "确认刷新状态", 704);
+    if (!clash.pending) uiText(48, 270, "确认重试  返回上级", 704);
+  } else {
+    for (uint8_t i = 0; i < clash.count; ++i) {
+      const int16_t y = 142 + i * 42;
+      const bool selected = i == clash.selected;
+      const uint16_t color = selected ? 1 : 0;
+      if (selected) graphics.fillRect(28, y - 2, 744, 42, 0);
+      const xte::ClashPanel::Row& row = clash.rows[i];
+      graphics.setTextColor(color);
+      text(40, y + 12, 2, row.current ? "*" : row.enabled ? ">" : "-");
+      font.draw(graphics, 68, y, row.name, 680, color);
+    }
+    graphics.setTextColor(0);
+    if (!clash.count) uiText(48, 190, "暂无条目", 704);
+    uiText(48, 354, clash.message, 704);
+  }
+}
+
 void render(bool online, bool full, bool half = false) {
   const uint32_t started = millis();
   font.beginRender();
@@ -370,10 +457,14 @@ void render(bool online, bool full, bool half = false) {
   else if (page == Page::STATUS) renderStatusPage();
   else if (page == Page::VOLUME) renderVolumePage();
   else if (page == Page::AGENTS) renderAgentPage();
+  else if (page == Page::CLASH) renderClashPage();
   else renderSettingsPage();
   graphics.drawFastHLine(28, 400, 744, 0);
   if (appMenu) {
-    uiText(28, 412, "方向键选择  确认打开", 744);
+    uiText(28, 412, "左右翻页  上下选择  确认打开", 744);
+  } else if (page == Page::CLASH) {
+    uiText(28, 412, clash.pending ? "正在读取  返回取消等待" :
+                               "上下选择  左右翻页  确认进入", 744);
   } else if (page == Page::SETTINGS) {
     const char* hint = settingsMode == SettingsMode::LIST ? "上下选择  确认打开  返回菜单" :
                        settingsMode == SettingsMode::EDIT ? "左右调整  确认保存  返回取消" :
@@ -509,28 +600,80 @@ void handleSettingsButtons() {
   }
 }
 
+void sendClashRequest(bool activate = false) {
+  char message[256];
+  const uint8_t index = clash.selected;
+  const bool hasRevision = clash.complete && clash.revision[0];
+  const bool longRequest = activate && (clash.confirming || !strcmp(clash.view, "profiles"));
+  clash.begin(millis());
+  clash.longRequest = longRequest;
+  snprintf(message, sizeof(message),
+           "XTE: clash {\"id\":%lu,\"op\":\"%s\",\"view\":\"%s\",\"page\":%u,\"rev\":\"%s\",\"index\":%u}\n",
+           static_cast<unsigned long>(clash.sequence), activate ? "activate" : "list",
+           clash.view, static_cast<unsigned>(clash.page), hasRevision ? clash.revision : "",
+           static_cast<unsigned>(index));
+  if (network.isLan()) network.send(message); else Serial.print(message);
+  renderNow = true;
+}
+
+void handleClashButtons() {
+  if (input.wasPressed(InputManager::BTN_BACK)) {
+    if (clash.confirming) { clash.confirming = false; renderNow = true; return; }
+    clash.pending = false;
+    if (!strcmp(clash.view, "home")) { appMenu = true; halfRefresh = true; renderNow = true; return; }
+    strcpy(clash.view, !strcmp(clash.view, "nodes") ? "groups" : "home");
+    clash.page = 0; sendClashRequest(); return;
+  }
+  if (clash.pending) return;
+  if (clash.confirming) {
+    if (input.wasPressed(InputManager::BTN_CONFIRM)) sendClashRequest(true);
+    return;
+  }
+  if (input.wasPressed(InputManager::BTN_CONFIRM)) {
+    if (!clash.complete || !clash.count) { sendClashRequest(); return; }
+    const bool writes = !strcmp(clash.view, "nodes") || !strcmp(clash.view, "profiles") ||
+                        (!strcmp(clash.view, "home") && (clash.selected == 2 || clash.selected == 3));
+    if (writes && clash.rows[clash.selected].enabled) { clash.confirming = true; renderNow = true; }
+    else sendClashRequest(true);
+  } else if (clash.complete && clash.count &&
+             (input.wasPressed(InputManager::BTN_RIGHT) || input.wasPressed(InputManager::BTN_LEFT))) {
+    const int delta = input.wasPressed(InputManager::BTN_RIGHT) ? -1 : 1;
+    clash.selected = (clash.selected + clash.count + delta) % clash.count;
+    renderNow = true;
+  } else if (clash.complete && clash.pages > 1 &&
+             (input.wasPressed(InputManager::BTN_UP) || input.wasPressed(InputManager::BTN_DOWN))) {
+    const int delta = input.wasPressed(InputManager::BTN_UP) ? -1 : 1;
+    clash.page = (clash.page + clash.pages + delta) % clash.pages;
+    sendClashRequest();
+  }
+}
+
 void handlePageButtons() {
   if (appMenu) {
-    uint8_t selected = static_cast<uint8_t>(page);
     // Landscape Left/Right = SDK Up/Down; landscape Up/Down = SDK Right/Left.
-    if (input.wasPressed(InputManager::BTN_UP) || input.wasPressed(InputManager::BTN_DOWN))
-      selected ^= 1;
-    else if (input.wasPressed(InputManager::BTN_RIGHT) || input.wasPressed(InputManager::BTN_LEFT))
-      selected ^= 2;
-    else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
+    if (input.wasPressed(InputManager::BTN_UP) || input.wasPressed(InputManager::BTN_DOWN)) {
+      const int delta = input.wasPressed(InputManager::BTN_UP) ? -1 : 1;
+      menuPage = (menuPage + MENU_PAGE_COUNT + delta) % MENU_PAGE_COUNT;
+      renderNow = true;
+    } else if (input.wasPressed(InputManager::BTN_RIGHT) || input.wasPressed(InputManager::BTN_LEFT)) {
+      const int delta = input.wasPressed(InputManager::BTN_RIGHT) ? -1 : 1;
+      uint8_t& selected = menuSelection[menuPage];
+      selected = (selected + MENU_TILE_COUNT + delta) % MENU_TILE_COUNT;
+      renderNow = true;
+    } else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
+      if (menuPage == 1 && menuSelection[1] != 1) return;
+      page = menuPage == 1 ? Page::CLASH : static_cast<Page>(menuSelection[0]);
       appMenu = false;
       settingsMode = SettingsMode::LIST;
       settingsMessage = nullptr;
       halfRefresh = true;
       renderNow = true;
+      if (page == Page::CLASH) { strcpy(clash.view, "home"); clash.page = 0; sendClashRequest(); }
       return;  // Opening an app must never also trigger its action.
-    }
-    if (selected != static_cast<uint8_t>(page)) {
-      page = static_cast<Page>(selected);
-      renderNow = true;
     }
     return;
   }
+  if (page == Page::CLASH) { handleClashButtons(); return; }
   if (page == Page::SETTINGS) {
     handleSettingsButtons();
     return;
@@ -594,6 +737,12 @@ bool handlePush(char* line, size_t length) {
   if (doc["cmd"] == "heartbeat") {
     lastContact = millis();
     replyActive("XTE: pong\n");
+  } else if (doc["cmd"] == "clash") {
+    if (!appMenu && page == Page::CLASH && clash.accept(doc)) {
+      lastContact = millis();
+      renderNow = !clash.pending;
+      replyActive("XTE: clash_received\n");
+    }
   } else if (doc["cmd"] == "agents") {
     xte::Agent updates[xte::MAX_AGENTS] = {};
     uint8_t count = 0;
@@ -759,6 +908,7 @@ void setup() {
   Serial.begin(115200);
   if (!settings.load()) Serial.println("XTE: settings defaults (missing or invalid NVS)");
   page = static_cast<Page>(settings.startupPage);
+  menuSelection[0] = settings.startupPage;
   // SDK display.begin() reuses an already initialized SPI bus. Its own begin
   // omits MISO; initialize it here from the verified hardware contract.
   digitalWrite(21, HIGH);
@@ -792,6 +942,12 @@ void loop() {
   if (millis() - batterySampledAt >= 30000) sampleBattery();
   if (millis() - usbPolledAt >= 200) pollUsb();
   const uint32_t now = millis();
+  if (!appMenu && page == Page::CLASH && clash.pending &&
+      now - clash.requestedAt >= (clash.longRequest ? 70000u : 10000u)) {
+    clash.pending = false; clash.complete = false;
+    strcpy(clash.message, clash.longRequest ? "结果待确认，请刷新" : "驱动未响应，请更新电脑驱动");
+    renderNow = true;
+  }
   if (volumePending && now - volumeRequestedAt >= 2000) {
     volumePending = false;
     status.volume = confirmedVolume;

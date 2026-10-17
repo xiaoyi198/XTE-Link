@@ -28,9 +28,13 @@ from serial.tools import list_ports
 if __package__:
     from .protocol import encode_status, encode_agent
     from .amd_gpu import collect_amd_gpu
+    from .codex_ipc import CodexApprovalAdapter
+    from .clash_panel import Worker as ClashWorker
 else:
     from protocol import encode_status, encode_agent
     from amd_gpu import collect_amd_gpu
+    from codex_ipc import CodexApprovalAdapter
+    from pc_driver.clash_panel import Worker as ClashWorker
 
 
 class AgentManager:
@@ -39,7 +43,7 @@ class AgentManager:
     TOOLS = ("dsh", "codex")
     STATES = ("offline", "idle", "running", "ask", "done", "error")
 
-    def __init__(self, status_path=None, action_path=None, dsh_adapter=None):
+    def __init__(self, status_path=None, action_path=None, dsh_adapter=None, codex_adapter=None):
         default_root = Path(os.environ.get("USERPROFILE", Path.home())) / ".xte-link"
         self.status_path = Path(status_path or os.environ.get("XTE_AGENT_STATUS", default_root / "agents.json"))
         self.action_path = Path(action_path or os.environ.get("XTE_AGENT_ACTIONS", default_root / "actions.jsonl"))
@@ -53,6 +57,7 @@ class AgentManager:
         # Explicit test/bridge paths stay deterministic; the live adapter is
         # enabled for the normal default manager only.
         self._dsh = dsh_adapter if dsh_adapter is not None else (None if status_path is not None else DshApprovalAdapter(changed=self.changed))
+        self._codex = codex_adapter if codex_adapter is not None else (None if status_path is not None else CodexApprovalAdapter(changed=self.changed))
 
     @staticmethod
     def _process_running(tool):
@@ -117,6 +122,8 @@ class AgentManager:
             self._process_at = now + 5
         if live_dsh:
             entries["dsh"] = live_dsh
+        if self._codex is not None:
+            entries["codex"] = self._codex.snapshot()
         for tool in self.TOOLS:
             if tool not in entries:
                 entries[tool] = {"tool": tool, "state": "running" if self._process_cache[tool] else "offline",
@@ -124,7 +131,8 @@ class AgentManager:
             # A live DSH event stream is authoritative.  In particular, do
             # not let the immediate post-action `done` marker hide a later
             # approval/request delivered by the same stream.
-            if tool in self._overrides and not (tool == "dsh" and self._dsh is not None):
+            if tool in self._overrides and not ((tool == "dsh" and self._dsh is not None) or
+                                               (tool == "codex" and self._codex is not None)):
                 if entries[tool]["state"] == "ask" and entries[tool]["id"] != self._override_requests.get(tool, entries[tool]["id"]):
                     del self._overrides[tool]
                 else:
@@ -134,10 +142,12 @@ class AgentManager:
     def close(self):
         if self._dsh is not None:
             self._dsh.close()
+        if self._codex is not None:
+            self._codex.close()
 
     @staticmethod
     def _desktop_key(tool, action):
-        if os.name != "nt":
+        if os.name != "nt" or tool != "dsh":
             return False
         try:
             import ctypes
@@ -145,7 +155,7 @@ class AgentManager:
             hwnd = user32.GetForegroundWindow()
             title = ctypes.create_unicode_buffer(256)
             user32.GetWindowTextW(hwnd, title, len(title))
-            expected = "deepseek" if tool == "dsh" else "codex"
+            expected = "deepseek"
             if expected not in title.value.lower():
                 return False
             key = 0x0D if action == "approve" else 0x1B
@@ -156,12 +166,16 @@ class AgentManager:
             return False
 
     def action(self, tool, request_id, action):
+        if action not in ("approve", "reject"):
+            return False
         if (tool, request_id) in self._handled:
             return False
         current = {item["tool"]: item for item in self.collect()}.get(tool)
         if not current or current["state"] != "ask" or current["id"] != request_id:
             return False
-        if tool == "dsh" and self._dsh is not None and self._dsh.decide(request_id, action):
+        if tool == "codex":
+            accepted = self._codex is not None and self._codex.decide(request_id, action)
+        elif tool == "dsh" and self._dsh is not None and self._dsh.decide(request_id, action):
             accepted = True
         else:
             accepted = self._desktop_key(tool, action)
@@ -178,7 +192,7 @@ class AgentManager:
                                         separators=(",", ":")) + "\n")
         except OSError:
             print("Agent action accepted; action log unavailable", file=sys.stderr)
-        if self._dsh is None or tool != "dsh":
+        if tool == "dsh" and self._dsh is None:
             with self._lock:
                 self._override_requests[tool] = request_id
                 self._overrides[tool] = {"tool": tool, "state": "done", "id": "", "text": action.upper()}
@@ -718,6 +732,7 @@ def main(argv=None, stop_event=None, on_connection=None, on_device=None, command
     exit_at = 0.0
     device_output = ""
     snapshot = None
+    clash_worker = ClashWorker() if session and not args.demo else None
     try:
         while stop_event is None or not stop_event.is_set():
             now = time.monotonic()
@@ -767,6 +782,8 @@ def main(argv=None, stop_event=None, on_connection=None, on_device=None, command
                     if len(device_output) > 4096:
                         device_output = ""
                     for line in lines:
+                        if clash_worker and clash_worker.handle(line, session.epoch):
+                            continue
                         if not args.demo and snapshot is not None:
                             confirmed = volume_confirmation(line, volume, snapshot, seen_volume)
                             if confirmed is not None:
@@ -786,6 +803,9 @@ def main(argv=None, stop_event=None, on_connection=None, on_device=None, command
                                         session.write(encode_agent(entry))
                                     sent_agents = {entry["tool"]: entry for entry in confirmed["agents"]}
                                 print("Agent action accepted", file=sys.stderr)
+                if clash_worker and session and session.active:
+                    for frame in clash_worker.take(session.epoch):
+                        session.write(frame)
                 if not pending_once and now >= next_sample:
                     next_sample = advance_deadline(next_sample, now, args.interval)
                     if sampler:
@@ -843,6 +863,8 @@ def main(argv=None, stop_event=None, on_connection=None, on_device=None, command
     except KeyboardInterrupt:
         return 0
     finally:
+        if clash_worker:
+            clash_worker.close()
         if session:
             session.close()
         if sampler:
