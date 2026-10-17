@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "created_date": "2026-10-18",
+  "generator": "built-in imagegen",
+  "format": {
+    "width": 800,
+    "height": 480,
+    "bits_per_pixel": 4,
+    "grays": [
+      0,
+      85,
+      170,
+      255
+    ],
+    "compression": "none",
+    "dither": false
+  },
+  "prompt_file": "PROMPTS.md",
+  "skins": [
+    {
+      "name": "hardware-lab",
+      "title": "硬件实验室",
+      "bmp": "hardware-lab.bmp",
+      "preview": "hardware-lab.png",
+      "original": "originals/hardware-lab.png",
+      "bytes": 192070,
+      "sha256": {
+        "bmp": "5e42eb1cf3107bddc01861738fd8523bee03cb42b0c4f826e4fd4ec300052005",
+        "preview": "c13c6c719b7d902885af9ca13425d1dded90db802b05e32a359439deff1e1b4f",
+        "original": "2bcf9d3b371b4716dcc449113f7f3691d9ec0a506df5502b8e3403910b21d227"
+      }
+    },
+    {
+      "name": "quiet-terminal",
+      "title": "静默终端",
+      "bmp": "quiet-terminal.bmp",
+      "preview": "quiet-terminal.png",
+      "original": "originals/quiet-terminal.png",
+      "bytes": 192070,
+      "sha256": {
+        "bmp": "7144ec86c57e93230501f30183c9706fd169682ff56f4d9c21dc497df01e0ee4",
+        "preview": "61965d7d7df216d4aafd6d7d8e4d7c411c98a5f8e1a500c950df293af380856b",
+        "original": "015762570f6a9eb1866c4dd381b47619524fc86751bf72cab39dd99c023ea336"
+      }
+    }
+  ]
+}

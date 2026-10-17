@@ -35,6 +35,11 @@ class Network {
   bool isLan() const { return lan; }
   bool ready() const { return configured; }
   const char* id() const { return device; }
+  const char* ssid() const { return configured ? config.ssid : ""; }
+  void reconnect() {
+    stop();
+    if (lan && configured) startWiFi();
+  }
   const char* state() const {
     if (!lan) return "usb";
     if (!configured) return "no_config";

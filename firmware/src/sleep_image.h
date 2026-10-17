@@ -3,6 +3,8 @@
 #include <Preferences.h>
 #include <SDCardManager.h>
 #include <esp_random.h>
+#include <algorithm>
+#include "settings.h"
 
 namespace xte {
 // Streams an 800x480 uncompressed 1/4/8-bit palette BMP from TF into the SDK
@@ -11,19 +13,33 @@ namespace xte {
 // both grays for the SDK grayscale LUT.
 class SleepImage {
  public:
+  ~SleepImage() { close(); }
   enum Plane : uint8_t { BASE, LSB, MSB };
   static constexpr const char* SINGLE = "/sleep.bmp";
   static constexpr const char* FOLDER = "/.sleep";
 
-  // /sleep.bmp wins; otherwise pick a random folder image, avoiding the last one.
-  bool open() {
-    if (!SdMan.ready()) return false;
-    if (SdMan.exists(SINGLE)) return load(SINGLE);
+  // Use the SDK directory helper; cap the catalog at 200 paths, no image cache.
+  static std::vector<String> catalog() {
     std::vector<String> names;
+    if (!SdMan.ready()) return names;
+    if (SdMan.exists(SINGLE)) names.push_back(String(SINGLE));
     for (const String& name : SdMan.listFiles(FOLDER, 200)) {
-      if (!name.startsWith(".") && name.length() < 64 && (name.endsWith(".bmp") || name.endsWith(".BMP")))
-        names.push_back(name);
+      const String path = String(FOLDER) + "/" + name;
+      if (names.size() < 200 && path.length() < 80 && Settings::imagePathValid(path.c_str()))
+        names.push_back(path);
     }
+    std::sort(names.begin(), names.end(), [](const String& a, const String& b) { return a.compareTo(b) < 0; });
+    return names;
+  }
+
+  // Preview deliberately avoids the sleep history key and all preference writes.
+  bool openPath(const char* path) {
+    return Settings::imagePathValid(path) && SdMan.ready() && load(path);
+  }
+
+  bool open(const Settings& settings) {
+    if (settings.imageMode == 1) return openPath(settings.sleepFile);
+    const auto names = catalog();
     if (names.empty()) return false;
     Preferences prefs;
     String last;
@@ -31,13 +47,22 @@ class SleepImage {
       last = prefs.getString("sleepLast", "");
       prefs.end();
     }
-    size_t index = esp_random() % names.size();
-    if (names.size() > 1 && names[index] == last) index = (index + 1) % names.size();
-    if (prefs.begin("xte-link", false)) {
-      prefs.putString("sleepLast", names[index]);
-      prefs.end();
+    size_t previous = names.size();
+    for (size_t i = 0; i < names.size(); ++i)
+      if (names[i] == last || names[i] == String(FOLDER) + "/" + last) previous = i;
+    size_t index = 0;
+    if (settings.imageMode == 2) {
+      if (previous < names.size()) index = (previous + 1) % names.size();
+    } else if (names.size() > 1 && previous < names.size()) {
+      // Uniform choice from all images except the previous one.
+      index = esp_random() % (names.size() - 1);
+      if (index >= previous) ++index;
+    } else index = esp_random() % names.size();
+    if (!openPath(names[index].c_str())) return false;
+    if (names[index] != last && prefs.begin("xte-link", false)) {
+      prefs.putString("sleepLast", names[index]); prefs.end();
     }
-    return load((String(FOLDER) + "/" + names[index]).c_str());
+    return true;
   }
 
   bool hasGray() const { return gray; }
@@ -53,7 +78,7 @@ class SleepImage {
         for (uint8_t b = 0; b < 8; ++b) {
           const uint8_t level = levels[index(row, x + b)];
           const bool set = plane == BASE ? level == 3 : plane == LSB ? level == 1 : level == 1 || level == 2;
-          bits = bits << 1 | set;
+          bits = static_cast<uint8_t>((bits << 1) | static_cast<uint8_t>(set));
         }
         out[x / 8] = bits;
       }

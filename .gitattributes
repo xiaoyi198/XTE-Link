@@ -7,5 +7,6 @@
 *.html text eol=lf
 *.patch text eol=lf whitespace=-blank-at-eol
 *.png binary
+*.bmp binary
 *.exe binary
 *.bin binary

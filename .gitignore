@@ -10,6 +10,21 @@
 !/requirements-dev.txt
 !/open-x4-sdk/
 
+# Bundled sleep skins: device BMPs, previews, originals and reproducible metadata.
+!/assets/
+/assets/*
+!/assets/sleep-skins/
+/assets/sleep-skins/*
+!/assets/sleep-skins/*.bmp
+!/assets/sleep-skins/*.png
+!/assets/sleep-skins/README.md
+!/assets/sleep-skins/PROMPTS.md
+!/assets/sleep-skins/manifest.json
+!/assets/sleep-skins/SHA256SUMS.txt
+!/assets/sleep-skins/originals/
+/assets/sleep-skins/originals/*
+!/assets/sleep-skins/originals/*.png
+
 # Firmware source
 !/firmware/
 /firmware/*
@@ -100,9 +115,24 @@
 !/artifacts/pc-driver/20261017-232911/使用说明.txt
 !/artifacts/pc-driver/20261017-232911/LICENSE-codex-mobile.txt
 
+# Updated tray instructions for the settings center.
+!/artifacts/pc-driver/20261018-001341/
+/artifacts/pc-driver/20261018-001341/*
+!/artifacts/pc-driver/20261018-001341/XTE-Link.exe
+!/artifacts/pc-driver/20261018-001341/SHA256SUMS.txt
+!/artifacts/pc-driver/20261018-001341/build-requirements.txt
+!/artifacts/pc-driver/20261018-001341/使用说明.txt
+!/artifacts/pc-driver/20261018-001341/LICENSE-codex-mobile.txt
+
 # Current device application image
 !/artifacts/firmware/
 /artifacts/firmware/*
+# Settings center development image; earlier releases remain available.
+!/artifacts/firmware/settings-center-20261018/
+/artifacts/firmware/settings-center-20261018/*
+!/artifacts/firmware/settings-center-20261018/firmware.bin
+!/artifacts/firmware/settings-center-20261018/SHA256SUMS.txt
+!/artifacts/firmware/settings-center-20261018/manifest.json
 !/artifacts/firmware/sleep-image-20261016-225639/
 /artifacts/firmware/sleep-image-20261016-225639/*
 !/artifacts/firmware/sleep-image-20261016-225639/firmware.bin

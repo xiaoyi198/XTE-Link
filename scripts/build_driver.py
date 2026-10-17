@@ -50,7 +50,8 @@ def main():
         "当前官方 Verge 使用本地兼容路径：代理经 Windows WinINet，TUN 经现有内核管道；重载可能恢复。\n"
         "不会写 Verge 配置；代理守卫、自动检测或其他程序管理的代理拒绝修改。TUN 未作真实切换测试。\n"
         "订阅更新需完整 Verge 兼容补丁；未安装时仅浏览列表并明确提示，禁止用 provider 更新冒充。\n"
-        "休眠图片需 sleep-image-20261016 或更新固件；通过 USB 上传到 TF 卡 /.sleep/，每次休眠随机显示一张。\n"
+        "休眠图片通过 USB 上传到 TF 卡 /.sleep/；settings-center-20261018 固件可在设置中预览并选固定/随机/顺序。\n"
+        "旧版 sleep-image-20261016 固件仍为随机显示，根目录 /sleep.bmp 优先。\n"
         "连接信息保存在用户目录 .xte-link/tray.json；日志在 .xte-link/driver.log。\n"
         "先关闭旧 Python 驱动或串口监视器，避免串口占用。\n"
         "重复双击仅保留一个托盘实例；程序不会设置开机自启。\n", encoding="utf-8")

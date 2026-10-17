@@ -1,0 +1,15 @@
+# 生成提示词
+
+2026-10-18，使用内置 imagegen 分别生成。原图保留，设备版另作无抖动四级灰度格式导出。
+
+### hardware-lab
+
+```text
+Use case: illustration-story. Asset type: a finished sleep-screen wallpaper for the owner's XTE-Link e-ink development project, landscape 5:3, preferably 1600x960, to be displayed at 800x480. Create ONE flat full-bleed artwork, no device mockup or border. Personal impression to express: a practical embedded developer who connects real hardware to desktop tools, likes modular open-source components, careful experiments and reproducible results. Scene: an elegant isometric miniature electronics laboratory: one compact ESP-style development board, a small landscape e-paper screen on a stand, neatly routed USB cable, a probe and a few neatly organized modular circuit blocks. A continuous bold circuit path connects the board, screen and a simple abstract terminal window, forming a coherent little engineering island. Crisp black ink drafting illustration with broad clean geometric shadows and airy white space, technical editorial engraving, composed with deliberate restraint. Palette: only white, light gray, dark gray, black. Line weight must survive downsampling to 800x480; no hairlines, noisy stippling, smooth gray gradients or tiny writing. Text verbatim: only 'XTE-Link' and a smaller 'SLEEP MODE', readable and integrated in a quiet lower margin. No extra labels, code, fake live status, dates, clocks, logos, people or watermarks. This is an attractive personal engineering-themed wallpaper, not a schematic requiring electrical accuracy.
+```
+
+### quiet-terminal
+
+```text
+Use case: stylized-concept. Asset type: a second finished sleep-screen wallpaper for the owner's XTE-Link e-ink development project. Landscape 5:3, preferably 1600x960, displayed at 800x480. Create ONE flat full-bleed artwork, no product mockup or border. Personal impression: a developer who values a calm, uncluttered workspace while building bridges between AI desktop tools and a real little e-paper device. Make a quiet architectural editorial illustration of a compact developer desk resting in a large calm field of white: an uncluttered monitor with two broad abstract terminal panes (no readable code), a keyboard, a landscape e-paper device on a small stand and one deliberate cable connecting the two. Behind this restrained work island, a broad soft-edged mountain silhouette is constructed from just a few clean horizontal signal-like contours, suggesting technical ideas settling into a landscape. Mostly white negative space, confident black silhouettes, a few large gray planes, sophisticated Japanese-inspired print composition with a distinctly more serene and spacious mood than a technical blueprint. Use only pure black, dark gray, light gray and white. No gradients, microtexture, hatching, tiny icons, people, pets, color, fake live metrics or clocks. Lettering: exactly 'XTE-Link' with small 'SLEEP MODE', integrated neatly into the composition without dominating. No other text, logos or watermarks. Important details and type stay comfortably within a 5 percent safe margin. Bold shapes and lines remain beautiful on a 4.26-inch 4-gray e-paper panel.
+```

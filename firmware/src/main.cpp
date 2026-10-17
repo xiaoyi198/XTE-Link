@@ -55,13 +55,32 @@ uint8_t menuSelection[MENU_PAGE_COUNT] = {};
 uint8_t selectedAgent = 0;
 xte::ClashPanel clash;
 xte::Settings settings;
-enum class SettingsMode : uint8_t { LIST, EDIT, INFO, RESET };
-SettingsMode settingsMode = SettingsMode::LIST;
+enum class SettingsMode : uint8_t { HOME, LIST, EDIT, INFO, RESET, GALLERY, PREVIEW, CONNECTION };
+enum Setting : uint8_t {
+  UPDATE, GHOST, CLEAN, IMAGE_MODE, GALLERY, START_MODE, START_APP, VOLUME,
+  TRANSPORT, CONNECTION, RECONNECT, REMINDER, INFO, SLEEP_TIMEOUT, RESET
+};
+SettingsMode settingsMode = SettingsMode::HOME;
+constexpr uint8_t GROUP_COUNT = 6;
+constexpr Setting GROUP_ITEMS[GROUP_COUNT][3] = {
+  {UPDATE, GHOST, CLEAN}, {IMAGE_MODE, GALLERY, GALLERY},
+  {START_MODE, START_APP, VOLUME}, {TRANSPORT, CONNECTION, RECONNECT},
+  {REMINDER, REMINDER, REMINDER}, {INFO, SLEEP_TIMEOUT, RESET}
+};
+constexpr uint8_t GROUP_SIZES[GROUP_COUNT] = {3, 2, 3, 3, 1, 3};
+uint8_t selectedGroup = 0;
 uint8_t selectedSetting = 0;
 uint8_t draftSetting = 0;
 const char* settingsMessage = nullptr;
-constexpr const char* FIRMWARE_VERSION = "clash-controls-20261017";
-constexpr uint8_t SETTING_COUNT = 6;
+constexpr const char* FIRMWARE_VERSION = "settings-center-20261018";
+std::vector<String> gallery;
+uint16_t gallerySelection = 0;
+uint16_t fastRefreshes = 0;
+uint32_t lastUserActivity = 0;
+Page lastApp = Page::STATUS;
+bool attentionQueued = false;
+bool renderGalleryPreview();
+uint8_t pendingApprovals();
 constexpr uint32_t POWER_HOLD_MS = 1500;
 // The pinned SDK has no power-latch API; GPIO13 follows the verified X4 contract.
 constexpr gpio_num_t POWER_LATCH = GPIO_NUM_13;
@@ -253,6 +272,12 @@ void renderAppMenu() {
       text(x + 112, y + 50, 3, labels[menuPage][i]);  // 198 px; TF text would be 250 px.
     else font.draw(graphics, x + 112, y + 42, labels[menuPage][i], 220);
     if (selected) graphics.fillRect(x + 112, y + 99, 64, 4, 0);
+    if (menuPage == 0 && i == 2 && settings.reminderMode && pendingApprovals()) {
+      char count[4]; snprintf(count, sizeof(count), "%u", static_cast<unsigned>(pendingApprovals()));
+      graphics.fillRect(x + 290, y + 12, 38, 32, 0);
+      graphics.setCursor(x + 303, y + 21); graphics.setTextSize(2); graphics.setTextColor(1);
+      graphics.print(count); graphics.setTextColor(0);
+    }
   }
   for (uint8_t i = 0; i < MENU_PAGE_COUNT; ++i) {
     const int16_t x = 382 + i * 28;
@@ -331,71 +356,188 @@ void renderAgentPage() {
   }
 }
 
-const char* settingLabel(uint8_t index) {
-  constexpr const char* labels[] = {"音量步长", "屏幕更新间隔", "菜单默认项", "连接方式", "设备信息", "恢复默认值"};
+const char* groupLabel(uint8_t index) {
+  constexpr const char* labels[] = {"显示与刷新", "屏保图库", "启动与操作", "连接与配对", "助手提醒", "设备与电源"};
   return labels[index];
 }
 
+const char* settingLabel(uint8_t index) {
+  constexpr const char* labels[] = {
+    "屏幕更新间隔", "自动清残影", "立即清屏", "屏保模式", "选择与预览",
+    "启动方式", "默认应用", "音量步长", "连接方式", "连接诊断", "重新连接",
+    "审批提醒", "设备信息", "电池自动休眠", "恢复默认值"
+  };
+  return labels[index];
+}
+
+const char* settingHelp(uint8_t index) {
+  constexpr const char* help[] = {
+    "普通数据刷新；审批事件即时更新", "累计快刷后全刷；周期需实屏调整", "与短按电源键相同",
+    "固定图片在图库中选择", "预览后按确认可设为固定屏保", "开机与唤醒时生效",
+    "用于菜单选中项或直接启动", "每次按键调整的音量百分比", "局域网需先用USB配置WiFi",
+    "区分供电、WiFi和电脑连接", "重新握手，不修改配对资料", "编辑设置时不会自动跳页",
+    "字库与TF状态在打开时检查", "仅电池闲置；休眠停止接收消息", "重置偏好，保留WiFi和TF文件"
+  };
+  return help[index];
+}
+
 uint8_t settingIndex(uint8_t index) {
-  return index == 0 ? settings.volumeIndex : index == 1 ? settings.intervalIndex :
-         index == 2 ? settings.startupPage : network.isLan();
+  switch (index) {
+    case UPDATE: return settings.intervalIndex;
+    case GHOST: return settings.ghostIndex;
+    case IMAGE_MODE: return settings.imageMode;
+    case START_MODE: return settings.startupMode;
+    case START_APP: return settings.startupPage;
+    case VOLUME: return settings.volumeIndex;
+    case TRANSPORT: return network.isLan();
+    case REMINDER: return settings.reminderMode;
+    case SLEEP_TIMEOUT: return settings.sleepTimeoutIndex;
+    default: return 0;
+  }
+}
+
+uint8_t settingChoices(uint8_t index) {
+  if (index == START_APP) return 5;
+  if (index == GHOST || index == SLEEP_TIMEOUT) return 4;
+  return index == TRANSPORT ? 2 : 3;
 }
 
 void settingValue(uint8_t index, uint8_t choice, char* value, size_t size) {
-  if (index == 0) {
-    constexpr int steps[] = {1, 5, 10};
-    snprintf(value, size, "%d %%", steps[choice]);
-  } else if (index == 1) {
-    constexpr int seconds[] = {5, 10, 30};
-    snprintf(value, size, "%d 秒", seconds[choice]);
-  } else if (index == 2) {
-    constexpr const char* pages[] = {"状态页", "音量页", "助手页"};
-    snprintf(value, size, "%s", pages[choice]);
-  } else if (index == 3) {
-    snprintf(value, size, "%s", choice ? "局域网连接" : "串口直连");
-  } else {
-    snprintf(value, size, "%s", index == 4 ? "查看" : "重置");
+  const char* label = "打开";
+  switch (index) {
+    case UPDATE: {
+      constexpr int seconds[] = {5, 10, 30};
+      snprintf(value, size, "%d 秒", seconds[choice]); return;
+    }
+    case VOLUME: {
+      constexpr int steps[] = {1, 5, 10};
+      snprintf(value, size, "%d %%", steps[choice]); return;
+    }
+    case GHOST: {
+      constexpr int counts[] = {0, 20, 50, 100};
+      if (choice) { snprintf(value, size, "%d 次快刷", counts[choice]); return; }
+      label = "关闭"; break;
+    }
+    case IMAGE_MODE: {
+      constexpr const char* modes[] = {"随机", "固定一张", "顺序"}; label = modes[choice]; break;
+    }
+    case START_MODE: {
+      constexpr const char* modes[] = {"应用菜单", "指定应用", "上次应用"}; label = modes[choice]; break;
+    }
+    case START_APP: {
+      constexpr const char* apps[] = {"电脑状态", "系统音量", "助手控制", "设置", "Clash Verge"}; label = apps[choice]; break;
+    }
+    case TRANSPORT: label = choice ? "局域网连接" : "串口直连"; break;
+    case REMINDER: {
+      constexpr const char* modes[] = {"关闭", "仅角标", "切到助手"}; label = modes[choice]; break;
+    }
+    case SLEEP_TIMEOUT: {
+      constexpr int minutes[] = {0, 5, 15, 30};
+      if (choice) { snprintf(value, size, "%d 分钟", minutes[choice]); return; }
+      label = "关闭"; break;
+    }
+    case RESET: label = "重置"; break;
+    default: break;
   }
+  snprintf(value, size, "%s", label);
+}
+
+void settingsRow(int16_t y, const char* label, const char* value, bool selected = false) {
+  if (selected) graphics.fillRect(28, y, 744, 42, 0);
+  const uint16_t color = selected ? 1 : 0;
+  font.draw(graphics, 48, y, label, 342, color);
+  font.draw(graphics, 410, y, value, 342, color);
+}
+
+uint8_t pendingApprovals() {
+  if (!haveStatus || millis() - lastContact >= OFFLINE_MS) return 0;
+  uint8_t count = 0;
+  for (uint8_t i = 0; i < status.agentCount; ++i)
+    if (!strcmp(status.agents[i].state, "ask") && status.agents[i].requestId[0]) ++count;
+  return count;
 }
 
 void renderSettingsPage() {
-  uiText(48, 96, "设置", 200);
-  if (settingsMessage) uiText(480, 96, settingsMessage, 272);
+  uiText(48, 96, settingsMode == SettingsMode::HOME ? "设置" : groupLabel(selectedGroup), 342);
+  char value[96];
+  if (settingsMode == SettingsMode::HOME) {
+    for (uint8_t i = 0; i < GROUP_COUNT; ++i) {
+      if (i == 0) snprintf(value, sizeof(value), "%lu 秒更新", static_cast<unsigned long>(settings.updateMs() / 1000));
+      else if (i == 1) settingValue(IMAGE_MODE, settings.imageMode, value, sizeof(value));
+      else if (i == 2) settingValue(START_MODE, settings.startupMode, value, sizeof(value));
+      else if (i == 3) snprintf(value, sizeof(value), "%s / %s", network.isLan() ? "局域网" : "USB",
+                               haveStatus && millis() - lastContact < OFFLINE_MS ? "在线" : "等待");
+      else if (i == 4) settingValue(REMINDER, settings.reminderMode, value, sizeof(value));
+      else snprintf(value, sizeof(value), "%s", SdMan.ready() ? "TF已挂载" : "TF未挂载");
+      settingsRow(138 + i * 42, groupLabel(i), value, i == selectedGroup);
+    }
+    return;
+  }
   if (settingsMode == SettingsMode::INFO) {
-    char value[64];
-    uiText(48, 146, "固件版本", 240);
-    text(400, 158, 2, FIRMWARE_VERSION);
-    uiText(48, 196, "协议版本", 240);
-    text(400, 208, 2, network.isLan() ? "v2 / LAN TCP" : "v2 / USB CDC");
-    uiText(48, 246, "TF卡状态", 260);
-    uiText(400, 246, SdMan.ready() ? "已挂载" : "未挂载", 352);
-    uiText(48, 296, "可用内存", 240);
+    settingsRow(146, "固件版本", ""); text(410, 158, 2, FIRMWARE_VERSION);
+    settingsRow(188, "TF卡状态", SdMan.ready() ? "已挂载" : "未挂载");
+    settingsRow(230, "字库状态", font.healthy() ? "读取正常" : "读取失败");
     snprintf(value, sizeof(value), "%u bytes", static_cast<unsigned>(ESP.getFreeHeap()));
-    text(400, 308, 2, value);
-    uiText(48, 346, network.isLan() ? "局域网地址" : "WiFi配置", 240);
-    if (network.isLan() && WiFi.status() == WL_CONNECTED)
-      text(400, 358, 2, WiFi.localIP().toString().c_str());
-    else uiText(400, 346, network.ready() ? "已配置" : "请用USB配置", 352);
+    settingsRow(272, "可用内存", ""); text(410, 284, 2, value);
+    snprintf(value, sizeof(value), "%u mV", static_cast<unsigned>(batteryMv));
+    settingsRow(314, "电池参考电压", ""); text(410, 326, 2, value);
+    return;
+  }
+  if (settingsMode == SettingsMode::CONNECTION) {
+    settingsRow(138, "USB供电", usbPowered ? "已接电" : "电池供电");
+    settingsRow(180, "电脑驱动", haveStatus && millis() - lastContact < OFFLINE_MS ? "在线" : "等待连接");
+    settingsRow(222, "WiFi名称", network.ready() ? network.ssid() : "未配置");
+    settingsRow(264, "WiFi状态", !network.isLan() ? "未启用" :
+                WiFi.status() == WL_CONNECTED ? "已连接" : network.ready() ? "连接中" : "未配置");
+    settingsRow(306, "局域网地址", "");
+    text(410, 318, 2, WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "--");
+    if (WiFi.status() == WL_CONNECTED) snprintf(value, sizeof(value), "%d dBm / v2", WiFi.RSSI());
+    else snprintf(value, sizeof(value), "-- / v2");
+    settingsRow(348, "信号与协议", ""); text(410, 360, 2, value);
     return;
   }
   if (settingsMode == SettingsMode::RESET) {
-    uiText(48, 174, "恢复默认设置？", 704);
-    uiText(48, 242, "音量步长 5%，更新间隔 5 秒", 704);
-    uiText(48, 300, "菜单默认状态，连接改为串口", 704);
+    uiText(48, 160, "恢复默认设置？", 704);
+    uiText(48, 220, "重置偏好，连接改为串口", 704);
+    uiText(48, 276, "保留WiFi配对、图片与字库", 704);
+    uiText(48, 332, settingsMessage ? settingsMessage : "自动休眠关闭，屏保改为随机", 704);
     return;
   }
-  for (uint8_t i = 0; i < SETTING_COUNT; ++i) {
-    const int16_t y = 138 + i * 42;
-    const bool selected = i == selectedSetting;
-    const uint16_t color = selected ? 1 : 0;
-    if (selected) graphics.fillRect(28, y - 2, 744, 46, 0);
-    font.draw(graphics, 48, y, settingLabel(i), 440, color);
-    char value[32];
-    const uint8_t choice = settingsMode == SettingsMode::EDIT && i == selectedSetting ?
-                           draftSetting : settingIndex(i);
-    settingValue(i, choice, value, sizeof(value));
-    font.draw(graphics, 520, y, value, 232, color);
+  if (settingsMode == SettingsMode::GALLERY) {
+    snprintf(value, sizeof(value), "%u / %u", gallery.empty() ? 0u : static_cast<unsigned>(gallerySelection + 1),
+             static_cast<unsigned>(gallery.size()));
+    text(610, 108, 2, value);
+    if (gallery.empty()) {
+      uiText(48, 190, "暂无图片，请用电脑驱动上传", 704);
+      uiText(48, 256, "休眠时使用内置像素画", 704);
+    } else {
+      const uint16_t start = (gallerySelection / 4) * 4;
+      for (uint16_t i = start; i < gallery.size() && i < start + 4; ++i) {
+        const int16_t y = 146 + (i - start) * 44;
+        const bool selected = i == gallerySelection;
+        if (selected) graphics.fillRect(28, y, 744, 42, 0);
+        const char* path = gallery[i].c_str();
+        font.draw(graphics, 48, y, strrchr(path, '/') + 1, 660, selected ? 1 : 0);
+        if (settings.imageMode == 1 && !strcmp(path, settings.sleepFile))
+          font.draw(graphics, 710, y, "*", 40, selected ? 1 : 0);
+      }
+    }
+    if (settingsMessage) uiText(48, 348, settingsMessage, 704);
+    return;
   }
+  if (settingsMode == SettingsMode::EDIT) {
+    uiText(48, 166, settingLabel(selectedSetting), 704);
+    settingValue(selectedSetting, draftSetting, value, sizeof(value));
+    uiText(96, 236, value, 608);
+    uiText(48, 326, settingsMessage ? settingsMessage : settingHelp(selectedSetting), 704);
+    return;
+  }
+  for (uint8_t i = 0; i < GROUP_SIZES[selectedGroup]; ++i) {
+    const Setting item = GROUP_ITEMS[selectedGroup][i];
+    settingValue(item, settingIndex(item), value, sizeof(value));
+    settingsRow(152 + i * 54, settingLabel(item), value, item == selectedSetting);
+  }
+  uiText(48, 336, settingsMessage ? settingsMessage : settingHelp(selectedSetting), 704);
 }
 
 void renderClashPage() {
@@ -441,6 +583,11 @@ void renderClashPage() {
 
 void render(bool online, bool full, bool half = false) {
   const uint32_t started = millis();
+  if (!appMenu && page == Page::SETTINGS && settingsMode == SettingsMode::PREVIEW) {
+    if (renderGalleryPreview()) { lastRendered = started; fastRefreshes = 0; return; }
+    full = true; // Failed preview may have modified the shared framebuffer.
+  }
+  if (!half && settings.ghostEvery() && fastRefreshes >= settings.ghostEvery() - 1) full = true;
   font.beginRender();
   display.clearScreen();
   graphics.setTextColor(0);
@@ -451,7 +598,13 @@ void render(bool online, bool full, bool half = false) {
     connection = !network.ready() ? "缺少WiFi配置" : WiFi.status() != WL_CONNECTED ? "WiFi连接中" : "等待驱动";
   uiText(570, 8, connection, 202);
   renderBattery();
-  text(28, 58, 2, haveStatus ? status.host : network.isLan() ? "LAN TCP" : "USB SERIAL");
+  char hostLabel[31];
+  snprintf(hostLabel, sizeof(hostLabel), "%.30s", haveStatus ? status.host : network.isLan() ? "LAN TCP" : "USB SERIAL");
+  text(28, 58, 2, hostLabel);
+  if (settings.reminderMode && pendingApprovals() && !(appMenu && menuPage == 0)) {
+    char count[32]; snprintf(count, sizeof(count), "待审批 %u", static_cast<unsigned>(pendingApprovals()));
+    uiText(400, 44, count, 312);
+  }
   graphics.drawFastHLine(28, 88, 744, 0);
   if (appMenu) renderAppMenu();
   else if (page == Page::STATUS) renderStatusPage();
@@ -466,9 +619,11 @@ void render(bool online, bool full, bool half = false) {
     uiText(28, 412, clash.pending ? "正在读取  返回取消等待" :
                                "上下选择  左右翻页  确认进入", 744);
   } else if (page == Page::SETTINGS) {
-    const char* hint = settingsMode == SettingsMode::LIST ? "上下选择  确认打开  返回菜单" :
+    const char* hint = settingsMode == SettingsMode::HOME ? "上下选择  确认打开  返回菜单" :
+                       settingsMode == SettingsMode::LIST ? "上下选择  确认打开  返回分类" :
                        settingsMode == SettingsMode::EDIT ? "左右调整  确认保存  返回取消" :
-                       settingsMode == SettingsMode::RESET ? "确认恢复  返回取消" : "返回：设置列表";
+                       settingsMode == SettingsMode::GALLERY ? "上下选择  确认预览  返回列表" :
+                       settingsMode == SettingsMode::RESET ? "确认恢复  返回取消" : "确认刷新  返回列表";
     uiText(28, 412, hint, 744);
   } else {
     uiText(28, 412, "返回菜单", 180);
@@ -478,6 +633,8 @@ void render(bool online, bool full, bool half = false) {
   font.endRender();
   display.displayBuffer(full ? EInkDisplay::FULL_REFRESH :
                         half ? EInkDisplay::HALF_REFRESH : EInkDisplay::FAST_REFRESH);
+  if (full) fastRefreshes = 0;
+  else if (!half && fastRefreshes < UINT16_MAX) ++fastRefreshes;
   lastRendered = started;
   Serial.printf("XTE: rendered %s in %lu ms, heap=%u battery=%umV\n", full ? "full" : half ? "half" : "fast",
                 static_cast<unsigned long>(millis() - started), static_cast<unsigned>(ESP.getFreeHeap()),
@@ -514,7 +671,7 @@ void sendAgentAction(const char* action) {
 }
 
 bool commitSettings(const xte::Settings& next) {
-  if (next.encode() == settings.encode()) {
+  if (next.sameAs(settings)) {
     settingsMessage = "未修改";
     return true;
   }
@@ -523,7 +680,10 @@ bool commitSettings(const xte::Settings& next) {
     Serial.println("XTE: settings save failed");
     return false;
   }
+  if (next.ghostIndex != settings.ghostIndex) fastRefreshes = 0;
+  if (next.reminderMode != settings.reminderMode) attentionQueued = false;
   settings = next;
+  lastUserActivity = millis();
   settingsMessage = "已保存";
   Serial.printf("XTE: settings saved volume_step=%d update_ms=%lu startup_page=%u\n",
                 settings.volumeStep(), static_cast<unsigned long>(settings.updateMs()),
@@ -534,29 +694,63 @@ bool commitSettings(const xte::Settings& next) {
 void handleSettingsButtons() {
   // Consume navigation here; Back cannot fall through to Agent-page rejection.
   if (input.wasPressed(InputManager::BTN_BACK)) {
-    if (settingsMode == SettingsMode::LIST) { appMenu = true; halfRefresh = true; }
-    else settingsMode = SettingsMode::LIST;
+    if (settingsMode == SettingsMode::HOME) { appMenu = true; halfRefresh = true; }
+    else if (settingsMode == SettingsMode::LIST) settingsMode = SettingsMode::HOME;
+    else if (settingsMode == SettingsMode::PREVIEW) { settingsMode = SettingsMode::GALLERY; forceFull = true; }
+    else {
+      if (settingsMode == SettingsMode::GALLERY) std::vector<String>().swap(gallery);
+      settingsMode = SettingsMode::LIST;
+    }
     settingsMessage = nullptr;
     renderNow = true;
     return;
   }
-  if (settingsMode == SettingsMode::LIST) {
+  if (settingsMode == SettingsMode::HOME) {
+    if (input.wasPressed(InputManager::BTN_RIGHT) || input.wasPressed(InputManager::BTN_LEFT)) {
+      const int delta = input.wasPressed(InputManager::BTN_RIGHT) ? -1 : 1;
+      selectedGroup = (selectedGroup + GROUP_COUNT + delta) % GROUP_COUNT;
+      renderNow = true;
+    } else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
+      selectedSetting = GROUP_ITEMS[selectedGroup][0];
+      settingsMode = SettingsMode::LIST;
+      settingsMessage = nullptr;
+      renderNow = true;
+    }
+  } else if (settingsMode == SettingsMode::LIST) {
     // Landscape side Up/Down are the SDK's Right/Left buttons.
     if (input.wasPressed(InputManager::BTN_RIGHT)) {
-      selectedSetting = (selectedSetting + SETTING_COUNT - 1) % SETTING_COUNT;
+      uint8_t row = 0;
+      while (GROUP_ITEMS[selectedGroup][row] != selectedSetting) ++row;
+      selectedSetting = GROUP_ITEMS[selectedGroup][(row + GROUP_SIZES[selectedGroup] - 1) % GROUP_SIZES[selectedGroup]];
       settingsMessage = nullptr;
       renderNow = true;
     } else if (input.wasPressed(InputManager::BTN_LEFT)) {
-      selectedSetting = (selectedSetting + 1) % SETTING_COUNT;
+      uint8_t row = 0;
+      while (GROUP_ITEMS[selectedGroup][row] != selectedSetting) ++row;
+      selectedSetting = GROUP_ITEMS[selectedGroup][(row + 1) % GROUP_SIZES[selectedGroup]];
       settingsMessage = nullptr;
       renderNow = true;
     } else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
       settingsMessage = nullptr;
-      if (selectedSetting < 4) {
+      if (selectedSetting == INFO) settingsMode = SettingsMode::INFO;
+      else if (selectedSetting == CONNECTION) settingsMode = SettingsMode::CONNECTION;
+      else if (selectedSetting == RESET) settingsMode = SettingsMode::RESET;
+      else if (selectedSetting == CLEAN) forceFull = true;
+      else if (selectedSetting == GALLERY) {
+        gallery = xte::SleepImage::catalog();
+        gallerySelection = 0;
+        for (uint16_t i = 0; i < gallery.size(); ++i)
+          if (!strcmp(gallery[i].c_str(), settings.sleepFile)) gallerySelection = i;
+        settingsMode = SettingsMode::GALLERY;
+      } else if (selectedSetting == RECONNECT) {
+        network.reconnect();
+        receiver.reset(); haveStatus = false; lastContact = 0; volumePending = false;
+        status = xte::Status{}; attentionQueued = false;
+        settingsMessage = "正在重新连接";
+        network.info();
+      } else {
         draftSetting = settingIndex(selectedSetting);
         settingsMode = SettingsMode::EDIT;
-      } else {
-        settingsMode = selectedSetting == 4 ? SettingsMode::INFO : SettingsMode::RESET;
       }
       renderNow = true;
     }
@@ -564,16 +758,16 @@ void handleSettingsButtons() {
     // Landscape top Left/Right are the SDK's Up/Down buttons.
     if (input.wasPressed(InputManager::BTN_UP) || input.wasPressed(InputManager::BTN_DOWN)) {
       const int delta = input.wasPressed(InputManager::BTN_UP) ? -1 : 1;
-      const int count = selectedSetting == 3 ? 2 : 3;
+      const int count = settingChoices(selectedSetting);
       draftSetting = static_cast<uint8_t>((draftSetting + delta + count) % count);
       settingsMessage = nullptr;
       renderNow = true;
     } else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
-      if (selectedSetting == 3) {
+      if (selectedSetting == TRANSPORT) {
         if (!network.setMode(draftSetting != 0)) {
           settingsMessage = network.ready() ? "保存失败" : "请先用USB配置WiFi";
         } else {
-          receiver.reset(); haveStatus = false; lastContact = 0; volumePending = false;
+          receiver.reset(); haveStatus = false; lastContact = 0; volumePending = false; attentionQueued = false;
           status = xte::Status{};
           settingsMode = SettingsMode::LIST;
           settingsMessage = "已保存";
@@ -583,19 +777,57 @@ void handleSettingsButtons() {
         return;
       }
       xte::Settings next = settings;
-      if (selectedSetting == 0) next.volumeIndex = draftSetting;
-      else if (selectedSetting == 1) next.intervalIndex = draftSetting;
-      else next.startupPage = draftSetting;
+      switch (selectedSetting) {
+        case UPDATE: next.intervalIndex = draftSetting; break;
+        case GHOST: next.ghostIndex = draftSetting; break;
+        case IMAGE_MODE:
+          if (draftSetting == 1 && !settings.sleepFile[0]) {
+            settingsMessage = "请先在图库选择固定图片"; renderNow = true; return;
+          }
+          next.imageMode = draftSetting; break;
+        case START_MODE: next.startupMode = draftSetting; break;
+        case START_APP: next.startupPage = draftSetting; break;
+        case VOLUME: next.volumeIndex = draftSetting; break;
+        case REMINDER: next.reminderMode = draftSetting; break;
+        case SLEEP_TIMEOUT: next.sleepTimeoutIndex = draftSetting; break;
+        default: return;
+      }
       if (commitSettings(next)) settingsMode = SettingsMode::LIST;
       renderNow = true;
     }
-  } else if (settingsMode == SettingsMode::RESET && input.wasPressed(InputManager::BTN_CONFIRM)) {
-    if (network.setMode(false) && commitSettings(xte::Settings{})) {
+  } else if (settingsMode == SettingsMode::GALLERY || settingsMode == SettingsMode::PREVIEW) {
+    if (gallery.empty()) return;
+    const bool preview = settingsMode == SettingsMode::PREVIEW;
+    const uint8_t previous = preview ? InputManager::BTN_UP : InputManager::BTN_RIGHT;
+    const uint8_t next = preview ? InputManager::BTN_DOWN : InputManager::BTN_LEFT;
+    if (input.wasPressed(previous) || input.wasPressed(next)) {
+      const int delta = input.wasPressed(previous) ? -1 : 1;
+      gallerySelection = static_cast<uint16_t>((gallerySelection + gallery.size() + delta) % gallery.size());
+      settingsMessage = nullptr; renderNow = true;
+    } else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
+      if (!preview) settingsMode = SettingsMode::PREVIEW;
+      else {
+        xte::Settings nextSettings = settings;
+        nextSettings.imageMode = 1;
+        snprintf(nextSettings.sleepFile, sizeof(nextSettings.sleepFile), "%s", gallery[gallerySelection].c_str());
+        const bool saved = commitSettings(nextSettings);
+        settingsMode = SettingsMode::GALLERY;
+        if (saved) settingsMessage = "已设为固定屏保";
+        forceFull = true;
+      }
+      renderNow = true;
+    }
+  } else if ((settingsMode == SettingsMode::INFO || settingsMode == SettingsMode::CONNECTION) &&
+             input.wasPressed(InputManager::BTN_CONFIRM)) renderNow = true;
+  else if (settingsMode == SettingsMode::RESET && input.wasPressed(InputManager::BTN_CONFIRM)) {
+    // Save preferences first; report partial transport failure and allow retry.
+    if (!commitSettings(xte::Settings{})) { renderNow = true; return; }
+    if (network.setMode(false)) {
       receiver.reset(); haveStatus = false; lastContact = 0; volumePending = false;
-      status = xte::Status{};
+      status = xte::Status{}; attentionQueued = false;
       settingsMode = SettingsMode::LIST;
       network.info();
-    } else settingsMessage = "保存失败";
+    } else settingsMessage = "串口切换失败，请重试";
     renderNow = true;
   }
 }
@@ -648,6 +880,73 @@ void handleClashButtons() {
   }
 }
 
+void openApp(Page next, bool remember = true) {
+  page = next;
+  menuPage = next == Page::CLASH ? 1 : 0;
+  menuSelection[menuPage] = next == Page::CLASH ? 1 : static_cast<uint8_t>(next);
+  appMenu = false;
+  settingsMode = SettingsMode::HOME;
+  settingsMessage = nullptr;
+  halfRefresh = true;
+  renderNow = true;
+  if (next == Page::AGENTS) attentionQueued = false;
+  if (next == Page::CLASH) { strcpy(clash.view, "home"); clash.page = 0; sendClashRequest(); }
+  if (remember && settings.startupMode == 2 && next != Page::SETTINGS && next != lastApp) {
+    Preferences prefs;
+    if (prefs.begin("xte-link", false)) {
+      if (prefs.putUChar("lastApp", static_cast<uint8_t>(next)) == 1) lastApp = next;
+      else Serial.println("XTE: last app save failed");
+      prefs.end();
+    }
+  }
+}
+
+void initializeStartup() {
+  lastApp = static_cast<Page>(settings.startupPage);
+  Preferences prefs;
+  if (prefs.begin("xte-link", true)) {
+    const uint8_t saved = prefs.getUChar("lastApp", settings.startupPage);
+    if (saved < 5 && saved != static_cast<uint8_t>(Page::SETTINGS)) lastApp = static_cast<Page>(saved);
+    prefs.end();
+  }
+  const Page next = settings.startupMode == 2 ? lastApp : static_cast<Page>(settings.startupPage);
+  menuPage = next == Page::CLASH ? 1 : 0;
+  menuSelection[menuPage] = next == Page::CLASH ? 1 : static_cast<uint8_t>(next);
+  appMenu = true;
+  if (settings.startupMode) openApp(next, false);
+  lastUserActivity = millis();
+}
+
+bool anyButtonHeld() {
+  for (uint8_t i = 0; i <= InputManager::BTN_POWER; ++i)
+    if (input.isPressed(i) || input.wasPressed(i)) return true;
+  return false;
+}
+
+void applyAgentAttention(uint32_t now) {
+  if (!pendingApprovals() || settings.reminderMode != 2) { attentionQueued = false; return; }
+  if (!attentionQueued || tf.active() || anyButtonHeld() || now - lastUserActivity < 800 ||
+      (!appMenu && (page == Page::SETTINGS || (page == Page::CLASH && (clash.confirming || clash.pending))))) return;
+  for (uint8_t i = 0; i < status.agentCount; ++i) {
+    if (!strcmp(status.agents[i].state, "ask") && status.agents[i].requestId[0]) {
+      selectedAgent = i;
+      if (appMenu || page != Page::AGENTS) openApp(Page::AGENTS, false);
+      attentionQueued = false;
+      renderNow = true;
+      return;
+    }
+  }
+}
+
+bool idleSleepDue(uint32_t now) {
+  if (usbPowered || tf.active() || pendingApprovals() || anyButtonHeld() ||
+      (!appMenu && (page == Page::SETTINGS || (page == Page::CLASH && (clash.pending || clash.confirming))))) {
+    lastUserActivity = now;
+    return false;
+  }
+  return settings.sleepMs() && now - lastUserActivity >= settings.sleepMs();
+}
+
 void handlePageButtons() {
   if (appMenu) {
     // Landscape Left/Right = SDK Up/Down; landscape Up/Down = SDK Right/Left.
@@ -662,13 +961,7 @@ void handlePageButtons() {
       renderNow = true;
     } else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
       if (menuPage == 1 && menuSelection[1] != 1) return;
-      page = menuPage == 1 ? Page::CLASH : static_cast<Page>(menuSelection[0]);
-      appMenu = false;
-      settingsMode = SettingsMode::LIST;
-      settingsMessage = nullptr;
-      halfRefresh = true;
-      renderNow = true;
-      if (page == Page::CLASH) { strcpy(clash.view, "home"); clash.page = 0; sendClashRequest(); }
+      openApp(menuPage == 1 ? Page::CLASH : static_cast<Page>(menuSelection[0]));
       return;  // Opening an app must never also trigger its action.
     }
     return;
@@ -710,7 +1003,15 @@ void replyActive(const char* message) {
   if (network.isLan()) network.send(message); else Serial.print(message);
 }
 
+void noticeAgent(const xte::Agent& previous, const xte::Agent& next) {
+  if (settings.reminderMode == 2 && !strcmp(next.state, "ask") && next.requestId[0] &&
+      (strcmp(previous.state, "ask") || strcmp(previous.requestId, next.requestId) || strcmp(previous.tool, next.tool)))
+    attentionQueued = true;
+}
+
 void acceptStatus(xte::Status incoming) {
+  const bool wasConnected = haveStatus && millis() - lastContact < OFFLINE_MS;
+  const uint8_t previousApprovals = pendingApprovals();
   const float previousVolume = status.volume;
   confirmedVolume = incoming.volume;
   if (volumePending && incoming.volumeAck != volumeSequence) incoming.volume = previousVolume;
@@ -721,14 +1022,22 @@ void acceptStatus(xte::Status incoming) {
   } else if (memcmp(incoming.agents, status.agents, sizeof(status.agents)) && !appMenu && page == Page::AGENTS) {
     renderNow = true;
   }
+  if (incoming.hasAgents)
+    for (uint8_t i = 0; i < incoming.agentCount; ++i) noticeAgent(status.agents[i], incoming.agents[i]);
   status = incoming;
   if (!appMenu && page == Page::VOLUME &&
       (std::isfinite(previousVolume) != std::isfinite(status.volume) ||
        (std::isfinite(status.volume) && previousVolume != status.volume))) renderNow = true;
   lastReceived = lastContact = millis();
   haveStatus = true;
+  const uint8_t approvals = pendingApprovals();
+  if (settings.reminderMode && approvals != previousApprovals) renderNow = true;
+  if (settings.reminderMode == 2 && approvals > previousApprovals) attentionQueued = true;
   dirty = true;
   replyActive("XTE: accepted\n");
+  // A direct Clash startup can precede USB/LAN driver availability. Retry only
+  // its read request when fresh metrics establish the connection.
+  if (!wasConnected && !appMenu && page == Page::CLASH && !clash.confirming) sendClashRequest();
 }
 
 bool handlePush(char* line, size_t length) {
@@ -744,6 +1053,7 @@ bool handlePush(char* line, size_t length) {
       replyActive("XTE: clash_received\n");
     }
   } else if (doc["cmd"] == "agents") {
+    const uint8_t previousApprovals = pendingApprovals();
     xte::Agent updates[xte::MAX_AGENTS] = {};
     uint8_t count = 0;
     if (!xte::readAgents(doc["agents"], updates, count) || !count) return true;
@@ -756,6 +1066,7 @@ bool handlePush(char* line, size_t length) {
         ++status.agentCount;
       }
       changed |= memcmp(&status.agents[index], &updates[i], sizeof(xte::Agent)) != 0;
+      noticeAgent(status.agents[index], updates[i]);
       status.agents[index] = updates[i];
     }
     lastContact = millis();
@@ -763,6 +1074,9 @@ bool handlePush(char* line, size_t length) {
       dirty = true;
       if (!appMenu && page == Page::AGENTS) renderNow = true;
     }
+    const uint8_t approvals = pendingApprovals();
+    if (settings.reminderMode && approvals != previousApprovals) renderNow = true;
+    if (settings.reminderMode == 2 && approvals > previousApprovals) attentionQueued = true;
     replyActive("XTE: accepted\n");
   }
   return true;
@@ -791,20 +1105,38 @@ void handleNetworkLine(char* line, size_t length) {
   if (xte::parseStatus(line, length, incoming)) acceptStatus(incoming);
 }
 
-bool renderSleepImage() {
+bool renderSleepImage(const char* previewPath = nullptr) {
   xte::SleepImage image;
   uint8_t* frame = display.getFrameBuffer();
-  if (!image.open() || !image.draw(frame, xte::SleepImage::BASE)) return false;
+  if (!(previewPath ? image.openPath(previewPath) : image.open(settings))) return false;
+  const auto hints = [&]() {
+    if (!previewPath) return;
+    graphics.fillRect(0, 420, 800, 60, 1);
+    font.beginRender();
+    uiText(28, 428, "左右换图  确认固定  返回图库", 744);
+    font.endRender();
+  };
+  if (!image.draw(frame, xte::SleepImage::BASE)) return false;
+  hints();
   display.displayBuffer(EInkDisplay::FULL_REFRESH);
-  if (image.hasGray() && image.draw(frame, xte::SleepImage::LSB)) {
+  if (image.hasGray()) {
+    if (!image.draw(frame, xte::SleepImage::LSB)) return false;
+    hints();
     display.copyGrayscaleLsbBuffers(frame);
-    if (image.draw(frame, xte::SleepImage::MSB)) {
-      display.copyGrayscaleMsbBuffers(frame);
-      display.displayGrayBuffer();
-    }
+    if (!image.draw(frame, xte::SleepImage::MSB)) return false;
+    hints();
+    display.copyGrayscaleMsbBuffers(frame);
+    display.displayGrayBuffer();
   }
   image.close();
   return true;
+}
+
+bool renderGalleryPreview() {
+  if (gallerySelection < gallery.size() && renderSleepImage(gallery[gallerySelection].c_str())) return true;
+  settingsMode = SettingsMode::GALLERY;
+  settingsMessage = "图片无效或已删除";
+  return false;
 }
 
 void renderSleep() {
@@ -906,9 +1238,8 @@ void setup() {
     while (true) delay(1000);
   }
   Serial.begin(115200);
-  if (!settings.load()) Serial.println("XTE: settings defaults (missing or invalid NVS)");
-  page = static_cast<Page>(settings.startupPage);
-  menuSelection[0] = settings.startupPage;
+  bool legacySettings = false;
+  if (!settings.load(&legacySettings)) Serial.println("XTE: settings defaults (missing or invalid NVS)");
   // SDK display.begin() reuses an already initialized SPI bus. Its own begin
   // omits MISO; initialize it here from the verified hardware contract.
   digitalWrite(21, HIGH);
@@ -917,13 +1248,21 @@ void setup() {
   pinMode(12, OUTPUT);
   SPI.begin(8, 7, 10, 21);
   SdMan.begin();
+  // Preserve the old root-image override during migration. New random/sequential
+  // modes explicitly include both the root image and the folder catalog.
+  if (legacySettings && SdMan.ready() && SdMan.exists(xte::SleepImage::SINGLE)) {
+    settings.imageMode = 1;
+    snprintf(settings.sleepFile, sizeof(settings.sleepFile), "%s", xte::SleepImage::SINGLE);
+  }
   network.begin();
   display.begin();
   Serial.printf("XTE: font reader bytes=%u path=%s\n", static_cast<unsigned>(sizeof(font)), xte::TfFont::PATH);
   pinMode(USB_DETECT, INPUT);
   usbPowered = digitalRead(USB_DETECT) == HIGH;
   sampleBattery();
+  initializeStartup();
   render(false, true);
+  renderNow = false; halfRefresh = false;
   Serial.println("XTE: ready protocol=2 max_payload=384");
   network.info();
 }
@@ -931,6 +1270,7 @@ void setup() {
 void loop() {
   tf.tick();
   input.update();
+  if (anyButtonHeld()) lastUserActivity = millis();
   handlePowerButton();
   if (!tf.active()) handlePageButtons();
   network.tick(handleNetworkLine);
@@ -955,6 +1295,12 @@ void loop() {
   }
   const bool online = haveStatus && now - lastContact < OFFLINE_MS;
   if (online != wasOnline) dirty = true;
+  applyAgentAttention(now);
+  if (idleSleepDue(now)) {
+    pollUsb(); // Recheck actual power before sleeping, outside the 200 ms poll cadence.
+    if (!usbPowered) { enterSleep(); return; }
+    lastUserActivity = millis();
+  }
   if (!tf.active() && (forceFull || renderNow || backgroundRenderDue(now, online))) {
     render(online, forceFull, halfRefresh);
     wasOnline = online;

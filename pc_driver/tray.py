@@ -214,7 +214,7 @@ class TrayApp:
             view = (600, 360)
             entries = []
             state = {"index": 0, "drag": None, "job": None, "photo": None}
-            ttk.Label(window, text="上传到 TF 卡 /.sleep/，每次休眠随机显示一张；TF 根目录有 /sleep.bmp 时只显示它。\n"
+            ttk.Label(window, text="上传到 TF 卡 /.sleep/；设备“设置 → 屏保图库”可选择固定、随机或顺序。\n"
                                    "拖动预览调整取景，滚轮缩放；停下后显示设备上的 4 级灰度效果。",
                       padding=12).grid(row=0, column=0, columnspan=4)
             canvas = tk.Canvas(window, width=view[0], height=view[1], background="white", highlightthickness=1)
