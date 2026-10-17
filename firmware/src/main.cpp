@@ -38,6 +38,7 @@ bool haveStatus = false;
 bool dirty = false;
 bool wasOnline = false;
 bool forceFull = false;
+bool halfRefresh = false;  // App transitions; normal content updates stay fast.
 bool renderNow = false;
 uint32_t volumeSequence = 0;
 uint32_t volumeRequestedAt = 0;
@@ -45,14 +46,15 @@ bool volumePending = false;
 float confirmedVolume = NAN;
 using xte::Page;
 Page page = Page::STATUS;
+bool appMenu = true;  // page also remembers the selected launcher tile.
 uint8_t selectedAgent = 0;
 xte::Settings settings;
-enum class SettingsMode : uint8_t { PREVIEW, LIST, EDIT, INFO, RESET };
-SettingsMode settingsMode = SettingsMode::PREVIEW;
+enum class SettingsMode : uint8_t { LIST, EDIT, INFO, RESET };
+SettingsMode settingsMode = SettingsMode::LIST;
 uint8_t selectedSetting = 0;
 uint8_t draftSetting = 0;
 const char* settingsMessage = nullptr;
-constexpr const char* FIRMWARE_VERSION = "sleep-image-20261016";
+constexpr const char* FIRMWARE_VERSION = "app-menu-half-20261017";
 constexpr uint8_t SETTING_COUNT = 6;
 constexpr uint32_t POWER_HOLD_MS = 1500;
 // The pinned SDK has no power-latch API; GPIO13 follows the verified X4 contract.
@@ -179,6 +181,44 @@ void metric(int16_t x, int16_t y, const char* label, const char* value) {
   text(x, y + 54, 3, value);
 }
 
+// Icons use the existing GFX primitives and the SDK's single framebuffer.
+void renderAppMenu() {
+  constexpr const char* labels[] = {"电脑状态", "系统音量", "助手控制", "设置"};
+  for (uint8_t i = 0; i < 4; ++i) {
+    const int16_t x = 40 + (i % 2) * 368;
+    const int16_t y = 104 + (i / 2) * 144;
+    const bool selected = i == static_cast<uint8_t>(page);
+    graphics.drawRect(x, y, 348, 132, 0);
+    if (selected) graphics.drawRect(x + 3, y + 3, 342, 126, 0);
+    const int16_t ix = x + 24, iy = y + 32;
+    if (i == 0) {
+      graphics.drawRect(ix, iy, 64, 44, 0);
+      graphics.fillRect(ix + 30, iy + 44, 4, 10, 0);
+      graphics.fillRect(ix + 16, iy + 54, 32, 3, 0);
+      for (int j = 0; j < 4; ++j)
+        graphics.fillRect(ix + 10 + j * 12, iy + 32 - j * 6, 6, 8 + j * 6, 0);
+    } else if (i == 1) {
+      graphics.drawRect(ix + 2, iy + 18, 18, 24, 0);
+      graphics.drawRect(ix + 20, iy + 8, 18, 44, 0);
+      graphics.drawFastVLine(ix + 48, iy + 16, 28, 0);
+      graphics.drawFastVLine(ix + 58, iy + 6, 48, 0);
+    } else if (i == 2) {
+      graphics.drawRect(ix, iy + 8, 64, 44, 0);
+      graphics.fillRect(ix + 14, iy + 22, 8, 8, 0);
+      graphics.fillRect(ix + 42, iy + 22, 8, 8, 0);
+      graphics.drawFastHLine(ix + 20, iy + 40, 24, 0);
+      graphics.drawFastVLine(ix + 32, iy, 8, 0);
+    } else {
+      for (int j = 0; j < 3; ++j) {
+        graphics.drawFastHLine(ix, iy + 10 + j * 20, 64, 0);
+        graphics.fillRect(ix + (j == 1 ? 40 : 12), iy + 4 + j * 20, 10, 13, 0);
+      }
+    }
+    font.draw(graphics, x + 112, y + 42, labels[i], 220);
+    if (selected) graphics.fillRect(x + 112, y + 99, 64, 4, 0);
+  }
+}
+
 void renderStatusPage() {
   graphics.drawFastVLine(400, 104, 250, 0);
   graphics.drawFastHLine(28, 230, 744, 0);
@@ -209,9 +249,9 @@ void renderVolumePage() {
     const int width = static_cast<int>(status.volume * 698.0f / 100.0f);
     if (width > 0) graphics.fillRect(51, 271, width, 28, 0);
   }
-  snprintf(value, sizeof(value), "左键 -%d", settings.volumeStep());
+  snprintf(value, sizeof(value), "下键 -%d", settings.volumeStep());
   uiText(48, 338, value, 300);
-  snprintf(value, sizeof(value), "右键 +%d", settings.volumeStep());
+  snprintf(value, sizeof(value), "上键 +%d", settings.volumeStep());
   uiText(502, 338, value, 250);
 }
 
@@ -237,16 +277,16 @@ void renderAgentPage() {
     if (agent.text[0]) text(48, 312, 2, agent.text);
     else uiText(48, 306, "等待批准");
     uiText(48, 354, "确认：批准", 380);
-    uiText(492, 354, "返回：拒绝", 260);
+    uiText(492, 354, "右键：拒绝", 260);
   } else {
     if (agent.text[0]) text(48, 294, 2, agent.text);
     else uiText(48, 294, "暂无待处理请求");
-    uiText(48, 354, "左右键切换助手");
+    uiText(48, 354, "上下键切换助手");
   }
 }
 
 const char* settingLabel(uint8_t index) {
-  constexpr const char* labels[] = {"音量步长", "屏幕更新间隔", "启动页面", "连接方式", "设备信息", "恢复默认值"};
+  constexpr const char* labels[] = {"音量步长", "屏幕更新间隔", "菜单默认项", "连接方式", "设备信息", "恢复默认值"};
   return labels[index];
 }
 
@@ -295,12 +335,12 @@ void renderSettingsPage() {
   if (settingsMode == SettingsMode::RESET) {
     uiText(48, 174, "恢复默认设置？", 704);
     uiText(48, 242, "音量步长 5%，更新间隔 5 秒", 704);
-    uiText(48, 300, "启动进入状态页，连接改为串口", 704);
+    uiText(48, 300, "菜单默认状态，连接改为串口", 704);
     return;
   }
   for (uint8_t i = 0; i < SETTING_COUNT; ++i) {
     const int16_t y = 138 + i * 42;
-    const bool selected = settingsMode != SettingsMode::PREVIEW && i == selectedSetting;
+    const bool selected = i == selectedSetting;
     const uint16_t color = selected ? 1 : 0;
     if (selected) graphics.fillRect(28, y - 2, 744, 46, 0);
     font.draw(graphics, 48, y, settingLabel(i), 440, color);
@@ -312,7 +352,7 @@ void renderSettingsPage() {
   }
 }
 
-void render(bool online, bool full) {
+void render(bool online, bool full, bool half = false) {
   const uint32_t started = millis();
   font.beginRender();
   display.clearScreen();
@@ -326,26 +366,29 @@ void render(bool online, bool full) {
   renderBattery();
   text(28, 58, 2, haveStatus ? status.host : network.isLan() ? "LAN TCP" : "USB SERIAL");
   graphics.drawFastHLine(28, 88, 744, 0);
-  if (page == Page::STATUS) renderStatusPage();
+  if (appMenu) renderAppMenu();
+  else if (page == Page::STATUS) renderStatusPage();
   else if (page == Page::VOLUME) renderVolumePage();
   else if (page == Page::AGENTS) renderAgentPage();
   else renderSettingsPage();
   graphics.drawFastHLine(28, 400, 744, 0);
-  if (page == Page::SETTINGS) {
-    const char* hint = settingsMode == SettingsMode::PREVIEW ? "左右切页  确认进入" :
-                       settingsMode == SettingsMode::LIST ? "上下选择  确认打开  返回退出" :
+  if (appMenu) {
+    uiText(28, 412, "方向键选择  确认打开", 744);
+  } else if (page == Page::SETTINGS) {
+    const char* hint = settingsMode == SettingsMode::LIST ? "上下选择  确认打开  返回菜单" :
                        settingsMode == SettingsMode::EDIT ? "左右调整  确认保存  返回取消" :
                        settingsMode == SettingsMode::RESET ? "确认恢复  返回取消" : "返回：设置列表";
     uiText(28, 412, hint, 744);
   } else {
-    uiText(28, 412, "更新", 120);
-    text(150, 424, 2, haveStatus ? status.time : "--");
+    uiText(28, 412, "返回菜单", 180);
+    text(230, 424, 2, haveStatus ? status.time : "--");
   }
   renderButtonHints();
   font.endRender();
-  display.displayBuffer(full ? EInkDisplay::FULL_REFRESH : EInkDisplay::FAST_REFRESH);
+  display.displayBuffer(full ? EInkDisplay::FULL_REFRESH :
+                        half ? EInkDisplay::HALF_REFRESH : EInkDisplay::FAST_REFRESH);
   lastRendered = started;
-  Serial.printf("XTE: rendered %s in %lu ms, heap=%u battery=%umV\n", full ? "full" : "fast",
+  Serial.printf("XTE: rendered %s in %lu ms, heap=%u battery=%umV\n", full ? "full" : half ? "half" : "fast",
                 static_cast<unsigned long>(millis() - started), static_cast<unsigned>(ESP.getFreeHeap()),
                 static_cast<unsigned>(batteryMv));
   if (!font.healthy()) Serial.printf("XTE: font boxes: %s\n", font.error());
@@ -398,17 +441,10 @@ bool commitSettings(const xte::Settings& next) {
 }
 
 void handleSettingsButtons() {
-  if (settingsMode == SettingsMode::PREVIEW) {
-    if (input.wasPressed(InputManager::BTN_CONFIRM)) {
-      settingsMode = SettingsMode::LIST;
-      settingsMessage = nullptr;
-      renderNow = true;
-    }
-    return;
-  }
   // Consume navigation here; Back cannot fall through to Agent-page rejection.
   if (input.wasPressed(InputManager::BTN_BACK)) {
-    settingsMode = settingsMode == SettingsMode::LIST ? SettingsMode::PREVIEW : SettingsMode::LIST;
+    if (settingsMode == SettingsMode::LIST) { appMenu = true; halfRefresh = true; }
+    else settingsMode = SettingsMode::LIST;
     settingsMessage = nullptr;
     renderNow = true;
     return;
@@ -474,21 +510,38 @@ void handleSettingsButtons() {
 }
 
 void handlePageButtons() {
-  if (page == Page::SETTINGS && settingsMode != SettingsMode::PREVIEW) {
+  if (appMenu) {
+    uint8_t selected = static_cast<uint8_t>(page);
+    // Landscape Left/Right = SDK Up/Down; landscape Up/Down = SDK Right/Left.
+    if (input.wasPressed(InputManager::BTN_UP) || input.wasPressed(InputManager::BTN_DOWN))
+      selected ^= 1;
+    else if (input.wasPressed(InputManager::BTN_RIGHT) || input.wasPressed(InputManager::BTN_LEFT))
+      selected ^= 2;
+    else if (input.wasPressed(InputManager::BTN_CONFIRM)) {
+      appMenu = false;
+      settingsMode = SettingsMode::LIST;
+      settingsMessage = nullptr;
+      halfRefresh = true;
+      renderNow = true;
+      return;  // Opening an app must never also trigger its action.
+    }
+    if (selected != static_cast<uint8_t>(page)) {
+      page = static_cast<Page>(selected);
+      renderNow = true;
+    }
+    return;
+  }
+  if (page == Page::SETTINGS) {
     handleSettingsButtons();
     return;
   }
-  // Page-switch events only switch pages; actions apply on a later key press.
-  if (input.wasPressed(InputManager::BTN_UP) || input.wasPressed(InputManager::BTN_DOWN)) {
-    const int delta = input.wasPressed(InputManager::BTN_UP) ? -1 : 1;
-    page = static_cast<Page>((static_cast<int>(page) + delta + 4) % 4);
-    settingsMode = SettingsMode::PREVIEW;
-    settingsMessage = nullptr;
+  if (input.wasPressed(InputManager::BTN_BACK)) {
+    appMenu = true;
+    halfRefresh = true;
     renderNow = true;
     return;
   }
-  if (page == Page::SETTINGS) handleSettingsButtons();
-  else if (page == Page::VOLUME) {
+  if (page == Page::VOLUME) {
     if (input.wasPressed(InputManager::BTN_LEFT)) sendVolumeDelta(-settings.volumeStep());
     else if (input.wasPressed(InputManager::BTN_RIGHT)) sendVolumeDelta(settings.volumeStep());
   } else if (page == Page::AGENTS) {
@@ -499,15 +552,15 @@ void handlePageButtons() {
       if (status.agentCount > 0) selectedAgent = (selectedAgent + 1) % status.agentCount;
       renderNow = true;
     } else if (input.wasPressed(InputManager::BTN_CONFIRM)) sendAgentAction("approve");
-    else if (input.wasPressed(InputManager::BTN_BACK)) sendAgentAction("reject");
+    else if (input.wasPressed(InputManager::BTN_DOWN)) sendAgentAction("reject");
   }
 }
 
 bool backgroundRenderDue(uint32_t now, bool online) {
-  // The settings page keeps receiving snapshots without repainting on every sample.
+  // Menu and settings keep receiving snapshots without repainting on every sample.
   // Connection changes bypass the selected interval so stale data is visibly offline.
   return online != wasOnline ||
-         (page != Page::SETTINGS && dirty && now - lastRendered >= settings.updateMs());
+         (!appMenu && page != Page::SETTINGS && dirty && now - lastRendered >= settings.updateMs());
 }
 
 void replyActive(const char* message) {
@@ -522,11 +575,11 @@ void acceptStatus(xte::Status incoming) {
   if (!incoming.hasAgents) {
     incoming.agentCount = status.agentCount;
     memcpy(incoming.agents, status.agents, sizeof(status.agents));
-  } else if (memcmp(incoming.agents, status.agents, sizeof(status.agents)) && page == Page::AGENTS) {
+  } else if (memcmp(incoming.agents, status.agents, sizeof(status.agents)) && !appMenu && page == Page::AGENTS) {
     renderNow = true;
   }
   status = incoming;
-  if (page == Page::VOLUME &&
+  if (!appMenu && page == Page::VOLUME &&
       (std::isfinite(previousVolume) != std::isfinite(status.volume) ||
        (std::isfinite(status.volume) && previousVolume != status.volume))) renderNow = true;
   lastReceived = lastContact = millis();
@@ -559,7 +612,7 @@ bool handlePush(char* line, size_t length) {
     lastContact = millis();
     if (changed) {
       dirty = true;
-      if (page == Page::AGENTS) renderNow = true;
+      if (!appMenu && page == Page::AGENTS) renderNow = true;
     }
     replyActive("XTE: accepted\n");
   }
@@ -742,15 +795,16 @@ void loop() {
   if (volumePending && now - volumeRequestedAt >= 2000) {
     volumePending = false;
     status.volume = confirmedVolume;
-    if (page == Page::VOLUME) renderNow = true;
+    if (!appMenu && page == Page::VOLUME) renderNow = true;
   }
   const bool online = haveStatus && now - lastContact < OFFLINE_MS;
   if (online != wasOnline) dirty = true;
   if (!tf.active() && (forceFull || renderNow || backgroundRenderDue(now, online))) {
-    render(online, forceFull);
+    render(online, forceFull, halfRefresh);
     wasOnline = online;
     dirty = false;
     forceFull = false;
+    halfRefresh = false;
     renderNow = false;
   }
   delay(tf.active() ? 1 : 20);

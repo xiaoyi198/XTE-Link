@@ -63,3 +63,8 @@
 !/artifacts/firmware/sleep-image-20261016-225639/firmware.bin
 !/artifacts/firmware/sleep-image-20261016-225639/SHA256SUMS.txt
 !/artifacts/firmware/sleep-image-20261016-225639/manifest.json
+!/artifacts/firmware/app-menu-half-20261017-132347/
+/artifacts/firmware/app-menu-half-20261017-132347/*
+!/artifacts/firmware/app-menu-half-20261017-132347/firmware.bin
+!/artifacts/firmware/app-menu-half-20261017-132347/SHA256SUMS.txt
+!/artifacts/firmware/app-menu-half-20261017-132347/manifest.json
