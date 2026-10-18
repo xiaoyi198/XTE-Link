@@ -80,12 +80,13 @@ class Network {
     return nullptr;
   }
 
-  void info(uint32_t requestId = 0, const char* error = nullptr) const {
+  void info(uint32_t requestId = 0, const char* error = nullptr, const char* firmware = nullptr) const {
     StaticJsonDocument<512> doc;
     doc["device"] = device;
     doc["mode"] = lan ? "lan" : "usb";
     doc["configured"] = configured;
     doc["events"] = 1;
+    if (firmware) doc["firmware"] = firmware;
     doc["state"] = state();
     doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("");
     doc["heap"] = ESP.getFreeHeap();

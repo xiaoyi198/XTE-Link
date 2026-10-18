@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 import threading
 import queue
+from contextlib import contextmanager
 
 from PIL import Image, ImageDraw
 import pystray
@@ -47,8 +48,9 @@ class LogStream:
 
 
 class TrayApp:
-    def __init__(self, root):
+    def __init__(self, root, show_event=None):
         self.root = root
+        self.show_event = show_event
         self.config_path = root / "tray.json"
         self.log_path = root / "driver.log"
         self.config = load_config(self.config_path)
@@ -62,8 +64,13 @@ class TrayApp:
         self.stop_event = threading.Event()
         self.session_stop = threading.Event()
         self.lock = threading.Lock()
+        self.maintenance = threading.Event()
+        self.installer_running = threading.Event()
+        self.driver_idle = threading.Event()
+        self.driver_idle.set()
         self.icon = pystray.Icon("XTE-Link", icon_image(), "XTE-Link · 正在启动", pystray.Menu(
             pystray.MenuItem(lambda item: self.status, None, enabled=False),
+            pystray.MenuItem("设备安装与维护", self.installer_dialog, default=True),
             pystray.MenuItem("串口", pystray.Menu(self.port_items)),
             pystray.MenuItem("连接方式", pystray.Menu(
                 pystray.MenuItem("自动跟随设备", self.select_mode("auto"), checked=lambda item: self.config["mode"] == "auto", radio=True),
@@ -133,7 +140,7 @@ class TrayApp:
 
     def device_changed(self, info):
         device = info["device"]
-        self.devices[device] = dict(info)
+        self.devices[device] = {**self.devices.get(device, {}), **info}
         self.usb_device = device
         self.config = load_config(self.config_path)
         self.icon.update_menu()
@@ -159,6 +166,25 @@ class TrayApp:
             finally:
                 self.dialog_lock.release()
         threading.Thread(target=show, name="xte-settings", daemon=True).start()
+
+    def installer_dialog(self, icon=None, item=None):
+        from pc_driver.install_window import build_window
+        self.dialog(lambda *args: build_window(self, *args))
+
+    @contextmanager
+    def exclusive_device(self):
+        with self.lock:
+            if self.maintenance.is_set():
+                raise OSError("另一项设备维护正在进行。")
+            self.maintenance.set()
+            self.session_stop.set()
+        try:
+            if not self.driver_idle.wait(15):
+                raise TimeoutError("驱动尚未释放串口，请稍后重试。")
+            self.set_status("设备安装中，请保持 USB 连接")
+            yield
+        finally:
+            self.maintenance.clear()
 
     def configure_wifi(self, icon, item, device=None):
         def build(window, tk, ttk, messagebox):
@@ -323,7 +349,7 @@ class TrayApp:
                     messagebox.showerror("无法提交", "上一项 USB 操作尚未完成，请稍后重试。", parent=window)
                     return
                 upload.configure(state="disabled")
-                progress.configure(text=f"正在上传 {len(images)} 张图片，每张约 10 秒，请保持 USB 连接……")
+                progress.configure(text=f"正在上传 {len(images)} 张图片并校验，请保持 USB 连接……")
 
             ttk.Button(actions, text="选择图片…", command=choose).grid(row=0, column=0, padx=6)
             ttk.Button(actions, text="重置裁切", command=reset).grid(row=0, column=1, padx=6)
@@ -388,9 +414,18 @@ class TrayApp:
                 with self.lock:
                     if self.stop_event.is_set():
                         break
+                    if self.maintenance.is_set():
+                        self.driver_idle.set()
+                        paused = True
+                    else:
+                        self.driver_idle.clear()
+                        paused = False
                     config = load_config(self.config_path)
                     port = config["port"]
                     session_stop = self.session_stop = threading.Event()
+                if paused:
+                    self.stop_event.wait(.1)
+                    continue
                 self.set_status("正在检测串口和局域网设备")
                 try:
                     args = ["--mode", config["mode"], "--interval", str(config["interval"]),
@@ -403,6 +438,8 @@ class TrayApp:
                     logging.exception("Telemetry worker failed")
                     self.set_status("运行异常，请查看日志")
                     session_stop.wait(2)
+                finally:
+                    self.driver_idle.set()
         except Exception:
             logging.exception("Tray worker failed")
             self.set_status("运行异常，请查看日志")
@@ -413,6 +450,9 @@ class TrayApp:
         os.startfile(self.log_path)
 
     def quit(self, icon, item):
+        if self.maintenance.is_set() or self.installer_running.is_set():
+            self.icon.notify("请先在安装窗口停止操作，等待当前写入校验完成。", "设备安装进行中")
+            return
         self.stop_event.set()
         with self.lock:
             self.session_stop.set()
@@ -422,6 +462,18 @@ class TrayApp:
         icon.visible = True
         logging.info("Tray icon visible; telemetry starting")
         self.worker.start()
+        if self.show_event:
+            def listen():
+                kernel = ctypes.windll.kernel32
+                kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+                kernel.ResetEvent.argtypes = [wintypes.HANDLE]
+                while not self.stop_event.is_set():
+                    if kernel.WaitForSingleObject(self.show_event, 250) == 0:
+                        kernel.ResetEvent(self.show_event)
+                        self.installer_dialog()
+            threading.Thread(target=listen, name="xte-show-window", daemon=True).start()
+        if not (self.root / "installer-seen").exists():
+            self.installer_dialog()
 
     def run(self):
         try:
@@ -436,14 +488,26 @@ class TrayApp:
 
 
 def main():
+    if len(sys.argv) >= 3 and sys.argv[1] == "--self-test":
+        from pc_driver.install import self_test
+        return self_test(Path(sys.argv[2]), Path(sys.argv[3]) if len(sys.argv) > 3 else None)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
     kernel32.CreateMutexW.restype = wintypes.HANDLE
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateEventW.restype = wintypes.HANDLE
+    kernel32.SetEvent.argtypes = kernel32.ResetEvent.argtypes = [wintypes.HANDLE]
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    show_event = kernel32.CreateEventW(None, True, False, "Local\\XTE-Link-ShowInstaller")
+    if not show_event:
+        raise ctypes.WinError(ctypes.get_last_error())
     mutex = kernel32.CreateMutexW(None, False, "Local\\XTE-Link-Tray")
     if not mutex:
         raise ctypes.WinError(ctypes.get_last_error())
     if ctypes.get_last_error() == 183:
+        kernel32.SetEvent(show_event)
+        kernel32.CloseHandle(show_event)
         kernel32.CloseHandle(mutex)
         return 0
     try:
@@ -455,7 +519,7 @@ def main():
                             format="%(asctime)s %(levelname)s %(message)s", force=True)
         sys.stdout = sys.stderr = LogStream()
         logging.info("XTE-Link tray started")
-        TrayApp(root).run()
+        TrayApp(root, show_event).run()
         return 0
     except Exception:
         logging.exception("XTE-Link startup failed")
@@ -464,6 +528,7 @@ def main():
         return 1
     finally:
         kernel32.CloseHandle(mutex)
+        kernel32.CloseHandle(show_event)
 
 
 if __name__ == "__main__":

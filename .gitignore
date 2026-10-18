@@ -9,6 +9,9 @@
 !/platformio.ini
 !/requirements-dev.txt
 !/open-x4-sdk/
+!/third_party/
+/third_party/*
+!/third_party/esp32-ymodem
 
 # Bundled sleep skins: device BMPs, previews, originals and reproducible metadata.
 !/assets/
@@ -25,6 +28,10 @@
 /assets/sleep-skins/originals/*
 !/assets/sleep-skins/originals/*.png
 
+# Versioned UI artwork, pinned icon sources, exports and provenance.
+!/assets/ui/
+!/assets/ui/**
+
 # Firmware source
 !/firmware/
 /firmware/*
@@ -32,6 +39,30 @@
 /firmware/src/*
 !/firmware/src/*.cpp
 !/firmware/src/*.h
+!/firmware/FONTS.md
+!/firmware/FONT20.md
+!/firmware/tests/
+/firmware/tests/*
+!/firmware/tests/*.py
+!/firmware/tests/*.cpp
+!/firmware/tests/*.h
+!/firmware/tests/stubs/
+!/firmware/tests/stubs/**
+
+# Reproducible local MiSans conversion; font binaries stay under ignored artifacts/.
+!/tools/
+/tools/*
+!/tools/misans/
+/tools/misans/*
+!/tools/misans/*.py
+!/tools/misans/*.json
+!/tools/misans/*.txt
+!/tools/misans/*.md
+!/tools/font_preview/
+/tools/font_preview/*
+!/tools/font_preview/*.py
+!/tools/font_preview/*.html
+!/tools/font_preview/*.md
 
 # Runtime driver modules and its dependency lists
 !/pc_driver/
@@ -49,6 +80,14 @@
 !/pc_driver/sleep_image.py
 !/pc_driver/tf.py
 !/pc_driver/tray.py
+!/pc_driver/install.py
+!/pc_driver/install_window.py
+!/pc_driver/flash.py
+!/pc_driver/device_profiles.json
+!/pc_driver/test_install.py
+!/pc_driver/INSTALLER.md
+!/pc_driver/test_tf.py
+!/pc_driver/test_network.py
 !/pc_driver/requirements.txt
 !/pc_driver/requirements-build.txt
 
@@ -56,12 +95,17 @@
 !/scripts/
 /scripts/*
 !/scripts/apply_sdk_patch.py
+!/scripts/apply_ymodem_patch.py
 !/scripts/archive_firmware.py
 !/scripts/build_driver.py
+!/scripts/prepare_driver_payload.py
 !/patches/
 /patches/*
 !/patches/open-x4-sdk-sdcard-format.patch
+!/patches/open-x4-sdk-sdcard-space.patch
 !/patches/LICENSE-open-x4-sdk
+!/patches/ymodem-stream.patch
+!/patches/README-ymodem.md
 
 # Optional Clash Verge bridge sources; build products remain local.
 !/compat/
@@ -124,15 +168,62 @@
 !/artifacts/pc-driver/20261018-001341/使用说明.txt
 !/artifacts/pc-driver/20261018-001341/LICENSE-codex-mobile.txt
 
+# Verified USB TF upload driver, preserving older releases.
+!/artifacts/pc-driver/20261019-014048/
+/artifacts/pc-driver/20261019-014048/*
+!/artifacts/pc-driver/20261019-014048/XTE-Link.exe
+!/artifacts/pc-driver/20261019-014048/SHA256SUMS.txt
+!/artifacts/pc-driver/20261019-014048/build-requirements.txt
+!/artifacts/pc-driver/20261019-014048/使用说明.txt
+!/artifacts/pc-driver/20261019-014048/LICENSE-codex-mobile.txt
+!/artifacts/pc-driver/20261019-014048/LICENSE-ymodem.txt
+
 # Current device application image
+!/artifacts/pc-driver/installer-20261019-r1/
+/artifacts/pc-driver/installer-20261019-r1/*
+!/artifacts/pc-driver/installer-20261019-r1/XTE-Link.exe
+!/artifacts/pc-driver/installer-20261019-r1/SHA256SUMS.txt
+!/artifacts/pc-driver/installer-20261019-r1/build-requirements.txt
+!/artifacts/pc-driver/installer-20261019-r1/使用说明.txt
+!/artifacts/pc-driver/installer-20261019-r1/THIRD-PARTY-NOTICES.txt
+!/artifacts/pc-driver/installer-20261019-r1/corresponding-source.zip
+!/artifacts/pc-driver/installer-20261019-r1/manifest.json
+!/artifacts/pc-driver/installer-20261019-r1/LICENSE-codex-mobile.txt
+!/artifacts/pc-driver/installer-20261019-r1/LICENSE-ymodem.txt
 !/artifacts/firmware/
 /artifacts/firmware/*
+!/artifacts/firmware/installer-20261019/
+/artifacts/firmware/installer-20261019/*
+!/artifacts/firmware/installer-20261019/firmware.bin
+!/artifacts/firmware/installer-20261019/SHA256SUMS.txt
+!/artifacts/firmware/installer-20261019/manifest.json
+!/artifacts/firmware/installer-20261019/VERIFICATION.md
+!/artifacts/firmware/installer-20261019/verification.json
+!/artifacts/firmware/usb-tf-20261019/
+/artifacts/firmware/usb-tf-20261019/*
+!/artifacts/firmware/usb-tf-20261019/firmware.bin
+!/artifacts/firmware/usb-tf-20261019/SHA256SUMS.txt
+!/artifacts/firmware/usb-tf-20261019/manifest.json
+!/artifacts/firmware/usb-tf-20261019/VERIFICATION.md
+!/artifacts/firmware/usb-tf-20261019/verification.json
+!/artifacts/firmware/usb-tf-20261019/LICENSE-ESP32-ymodem.txt
+# Local verified MiSans development image; not flashed to the device yet.
+!/artifacts/firmware/misans-20261018/
+/artifacts/firmware/misans-20261018/*
+!/artifacts/firmware/misans-20261018/firmware.bin
+!/artifacts/firmware/misans-20261018/SHA256SUMS.txt
+!/artifacts/firmware/misans-20261018/manifest.json
 # Settings center development image; earlier releases remain available.
 !/artifacts/firmware/settings-center-20261018/
 /artifacts/firmware/settings-center-20261018/*
 !/artifacts/firmware/settings-center-20261018/firmware.bin
 !/artifacts/firmware/settings-center-20261018/SHA256SUMS.txt
 !/artifacts/firmware/settings-center-20261018/manifest.json
+!/artifacts/firmware/gray-flat-ui-20261018/
+/artifacts/firmware/gray-flat-ui-20261018/*
+!/artifacts/firmware/gray-flat-ui-20261018/firmware.bin
+!/artifacts/firmware/gray-flat-ui-20261018/SHA256SUMS.txt
+!/artifacts/firmware/gray-flat-ui-20261018/manifest.json
 !/artifacts/firmware/sleep-image-20261016-225639/
 /artifacts/firmware/sleep-image-20261016-225639/*
 !/artifacts/firmware/sleep-image-20261016-225639/firmware.bin

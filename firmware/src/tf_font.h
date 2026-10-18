@@ -6,21 +6,64 @@
 #include <string.h>
 
 namespace xte {
-// Adapter for the inspected legacy Zheng20 file, not the newer .cpfont format.
+// Bounded, streamed reader for the inspected EPDF layout (not .cpfont).
 // All SD access uses the SDK and finishes before sending the display buffer.
 class TfFont {
  public:
   static constexpr const char* PATH = "/fonts/Zheng20号.epdfont";
   static constexpr uint8_t LINE_HEIGHT = 42;
   static constexpr uint8_t ASCENDER = 35;
+  enum class Face : uint8_t { Legacy20, Caption24, Body32, Title40, Numbers64 };
 
-  bool beginRender() {
+  // Legacy default keeps the old font and its verification/rollback path intact.
+  bool beginRender(Face face = Face::Legacy20) {
     endRender();
     error_ = nullptr;
+    rendering_ = true;
+    return loadFace(face);
+  }
+
+  bool select(Face face) {
+    if (face == face_) return rendering_ && healthy();
+    profile_ = &profile(face);
+    if (!rendering_ || !healthy()) { face_ = face; return false; }
+    return loadFace(face);
+  }
+
+  uint8_t lineHeight() const { return profile_->line; }
+  uint8_t ascender() const { return profile_->ascender; }
+  static const char* path(Face face) { return profile(face).path; }
+  void endRender() { file_.close(); rendering_ = false; }
+  bool healthy() const { return error_ == nullptr; }
+  const char* error() const { return error_; }
+
+ private:
+  struct Profile {
+    const char* path;
+    uint8_t pixels, line, ascender;
+    int8_t descender;
+    uint8_t bpp, maxWidth, maxHeight, maxAdvance;
+  };
+  static const Profile& profile(Face face) {
+    // Generated/verified metrics: tools/misans/reference-manifest.json.
+    static constexpr Profile profiles[] = {
+      {PATH, 42, 42, 35, -9, 2, 48, 44, 42},
+      {"/fonts/MiSans-Medium-24.epdfont", 24, 35, 27, -8, 1, 38, 28, 38},
+      {"/fonts/MiSans-Medium-32.epdfont", 32, 46, 36, -10, 1, 51, 38, 51},
+      {"/fonts/MiSans-Medium-40.epdfont", 40, 57, 45, -12, 1, 63, 47, 63},
+      {"/fonts/MiSans-Medium-64.epdfont", 64, 51, 49, -2, 1, 53, 51, 53},
+    };
+    return profiles[static_cast<uint8_t>(face)];
+  }
+
+  bool loadFace(Face face) {
+    file_.close();
+    face_ = face;
+    profile_ = &profile(face);
     for (auto& entry : cache_) entry.valid = false;
     nextSlot_ = 0;
     if (!SdMan.ready()) return fail("TF not mounted");
-    file_ = SdMan.open(PATH, O_RDONLY);
+    file_ = SdMan.open(profile_->path, O_RDONLY);
     if (!file_ || file_.isDirectory()) return fail("font missing");
     const uint64_t size = file_.fileSize();
     if (size > UINT32_MAX || size < 48) return fail("font size");
@@ -31,10 +74,10 @@ class TfFont {
     glyphCount_ = u32(header + 8);
     glyphsOffset_ = u32(header + 40);
     bitmapOffset_ = u32(header + 44);
-    if (u32(header) != 0x46445045 || u32(header + 12) != LINE_HEIGHT ||
-        u32(header + 16) != 0 || u32(header + 20) != ASCENDER ||
-        u32(header + 24) != 0 || u32(header + 28) != 0xfffffff7 ||
-        u32(header + 32) != 1 || u32(header + 36) != 48 ||
+    if (u32(header) != 0x46445045 || u32(header + 12) != profile_->line ||
+        u32(header + 16) != 0 || u32(header + 20) != profile_->ascender ||
+        u32(header + 24) != 0 || static_cast<int32_t>(u32(header + 28)) != profile_->descender ||
+        u32(header + 32) != (profile_->bpp == 2 ? 1u : 0u) || u32(header + 36) != 48 ||
         intervalCount_ == 0 || intervalCount_ > MAX_INTERVALS ||
         glyphCount_ == 0 || glyphCount_ > 65536 ||
         glyphsOffset_ != 48 + intervalCount_ * 12 ||
@@ -59,10 +102,7 @@ class TfFont {
     return true;
   }
 
-  void endRender() { file_.close(); }
-  bool healthy() const { return error_ == nullptr; }
-  const char* error() const { return error_; }
-
+ public:
   // Strict UTF-8: invalid input consumes one byte, without reading past end.
   static uint32_t nextCodepoint(const char*& cursor, const char* end) {
     if (cursor == end) return 0;
@@ -90,7 +130,7 @@ class TfFont {
     uint32_t width = 0;
     while (text < end) {
       const Entry* entry = glyph(nextCodepoint(text, end));
-      width += entry ? entry->advance : LINE_HEIGHT;
+      width += entry ? entry->advance : profile_->pixels;
       if (width > UINT16_MAX) return UINT16_MAX;
     }
     return static_cast<uint16_t>(width);
@@ -102,23 +142,27 @@ class TfFont {
     uint32_t used = 0;
     while (text < end) {
       const Entry* entry = glyph(nextCodepoint(text, end));
-      const uint8_t advance = entry ? entry->advance : LINE_HEIGHT;
+      const uint8_t advance = entry ? entry->advance : profile_->pixels;
       if (used + advance > maxWidth) break;  // Never split a UTF-8 character.
       if (!entry) {
         // Missing symbols are visible; do not silently replace them with a font.
-        for (int row = 0; row < 26; ++row) {
-          for (int col = 0; col < 26; ++col) {
-            if (row && row != 25 && col && col != 25) continue;
-            pixel(target, x, top + 7 + row, used + 8 + col, maxWidth, color);
+        const int side = face_ == Face::Legacy20 ? 26 : profile_->pixels * 2 / 3;
+        const int dx = face_ == Face::Legacy20 ? 8 : (advance - side) / 2;
+        const int dy = face_ == Face::Legacy20 ? 7 : (profile_->line - side) / 2;
+        for (int row = 0; row < side; ++row) {
+          for (int col = 0; col < side; ++col) {
+            if (row && row != side - 1 && col && col != side - 1) continue;
+            pixel(target, x, top + dy + row, used + dx + col, maxWidth, color);
           }
         }
       } else {
         for (int row = 0; row < entry->height; ++row) {
           for (int col = 0; col < entry->width; ++col) {
             const unsigned n = row * entry->width + col;
-            const uint8_t level = (entry->bitmap[n / 4] >> (6 - 2 * (n % 4))) & 3;
-            if (level >= 2) {
-              pixel(target, x, top + ASCENDER - entry->top + row,
+            const bool black = profile_->bpp == 1 ? (entry->bitmap[n / 8] & (0x80 >> (n % 8))) != 0 :
+                ((entry->bitmap[n / 4] >> (6 - 2 * (n % 4))) & 3) >= 2;
+            if (black) {
+              pixel(target, x, top + profile_->ascender - entry->top + row,
                     static_cast<int32_t>(used) + entry->left + col, maxWidth, color);
             }
           }
@@ -130,8 +174,8 @@ class TfFont {
   }
 
  private:
-  static constexpr uint32_t MAX_INTERVALS = 128;
-  static constexpr uint16_t BITMAP_BYTES = 512;  // Inspected maximum: 492 bytes.
+  static constexpr uint32_t MAX_INTERVALS = 256;
+  static constexpr uint16_t BITMAP_BYTES = 512;  // Legacy <=492; MiSans <=325.
   struct Interval { uint32_t first, last, offset; };
   struct Entry {
     uint32_t cp = 0;
@@ -147,6 +191,9 @@ class TfFont {
   uint32_t intervalCount_ = 0, glyphCount_ = 0, glyphsOffset_ = 0;
   uint32_t bitmapOffset_ = 0, fileSize_ = 0;
   const char* error_ = "font not opened";
+  const Profile* profile_ = &profile(Face::Legacy20);
+  Face face_ = Face::Legacy20;
+  bool rendering_ = false;
 
   static uint32_t u32(const uint8_t* b) {
     return uint32_t(b[0]) | (uint32_t(b[1]) << 8) | (uint32_t(b[2]) << 16) | (uint32_t(b[3]) << 24);
@@ -193,12 +240,15 @@ class TfFont {
     entry.valid = false;
     entry.cp = cp;
     entry.width = record[0]; entry.height = record[1]; entry.advance = record[2];
-    entry.left = bearing(record + 3); entry.top = bearing(record + 5);
+    entry.left = face_ == Face::Legacy20 ? bearing(record + 3) : static_cast<int16_t>(u16(record + 3));
+    entry.top = face_ == Face::Legacy20 ? bearing(record + 5) : static_cast<int16_t>(u16(record + 5));
     const uint16_t length = u16(record + 7);
     const uint32_t offset = u32(record + 9);
-    if (entry.width > 48 || entry.height > 44 || entry.advance > LINE_HEIGHT ||
-        entry.left < -48 || entry.left > 48 || entry.top < -44 || entry.top > ASCENDER ||
-        length != (entry.width * entry.height * 2 + 7) / 8 || length > BITMAP_BYTES ||
+    const int leftLimit = face_ == Face::Legacy20 ? 48 : 64;
+    const int minTop = face_ == Face::Legacy20 ? -44 : -64;
+    if (entry.width > profile_->maxWidth || entry.height > profile_->maxHeight || entry.advance > profile_->maxAdvance ||
+        entry.left < -leftLimit || entry.left > leftLimit || entry.top < minTop || entry.top > profile_->ascender ||
+        length != (entry.width * entry.height * profile_->bpp + 7) / 8 || length > BITMAP_BYTES ||
         offset > fileSize_ - bitmapOffset_ || length > fileSize_ - bitmapOffset_ - offset) {
       fail("font glyph");
       return nullptr;

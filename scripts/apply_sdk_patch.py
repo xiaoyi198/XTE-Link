@@ -6,6 +6,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 SDK = ROOT / "open-x4-sdk"
 PATCH = ROOT / "patches/open-x4-sdk-sdcard-format.patch"
+MIGRATION = ROOT / "patches/open-x4-sdk-sdcard-space.patch"
 COMMIT = "7d86603ad27709a9a766bb5ad893cfc39e60777e"
 
 
@@ -24,18 +25,21 @@ def main():
     if revision.returncode or revision.stdout.strip() != COMMIT:
         parser.error("SDK commit differs from the pinned version; no files changed")
     if git("apply", "--reverse", "--check", str(PATCH)).returncode == 0:
-        print("SDK patch already applied")
+        print("SDK format/space patch already applied")
         return
-    check = git("apply", "--check", str(PATCH))
-    if check.returncode:
-        parser.error("SDK patch cannot apply; preserve local changes and resolve manually:\n" + check.stderr)
+    if git("apply", "--check", str(PATCH)).returncode == 0:
+        selected = PATCH
+    elif git("apply", "--check", str(MIGRATION)).returncode == 0:
+        selected = MIGRATION  # Upgrade the previously supported format-only state.
+    else:
+        parser.error("SDK patch cannot apply; preserve local changes and resolve manually")
     if args.check:
-        print("SDK patch can be applied")
+        print(f"SDK patch can be applied: {selected.name}")
         return
-    applied = git("apply", str(PATCH))
+    applied = git("apply", str(selected))
     if applied.returncode:
         parser.error(applied.stderr)
-    print("SDK patch applied")
+    print(f"SDK patch applied: {selected.name}")
 
 
 if __name__ == "__main__":

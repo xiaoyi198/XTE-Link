@@ -1,20 +1,21 @@
 diff --git a/libs/hardware/SDCardManager/include/SDCardManager.h b/libs/hardware/SDCardManager/include/SDCardManager.h
-index 1734632..019ea26 100644
+index 1734632..a23a08f 100644
 --- a/libs/hardware/SDCardManager/include/SDCardManager.h
 +++ b/libs/hardware/SDCardManager/include/SDCardManager.h
-@@ -10,6 +10,7 @@ class SDCardManager {
+@@ -10,6 +10,8 @@ class SDCardManager {
    SDCardManager();
    bool begin();
    bool ready() const;
 +  bool format();
++  bool space(uint64_t& freeBytes, uint32_t& clusterBytes);
    std::vector<String> listFiles(const char* path = "/", int maxFiles = 200);
    // Read the entire file at `path` into a String. Returns empty string on failure.
    String readFile(const char* path);
 diff --git a/libs/hardware/SDCardManager/src/SDCardManager.cpp b/libs/hardware/SDCardManager/src/SDCardManager.cpp
-index 55ad5ae..824e992 100644
+index 55ad5ae..a6f19ae 100644
 --- a/libs/hardware/SDCardManager/src/SDCardManager.cpp
 +++ b/libs/hardware/SDCardManager/src/SDCardManager.cpp
-@@ -25,6 +25,13 @@ bool SDCardManager::ready() const {
+@@ -25,6 +25,22 @@ bool SDCardManager::ready() const {
    return initialized;
  }
  
@@ -23,6 +24,15 @@ index 55ad5ae..824e992 100644
 +  const bool result = sd.format();
 +  initialized = false;
 +  return result;
++}
++
++bool SDCardManager::space(uint64_t& freeBytes, uint32_t& clusterBytes) {
++  if (!initialized) return false;
++  const int32_t clusters = static_cast<int32_t>(sd.freeClusterCount());
++  if (clusters < 0) return false;
++  clusterBytes = sd.bytesPerCluster();
++  freeBytes = static_cast<uint64_t>(clusters) * clusterBytes;
++  return clusterBytes != 0;
 +}
 +
  std::vector<String> SDCardManager::listFiles(const char* path, const int maxFiles) {

@@ -1,0 +1,8 @@
+[
+  {
+    "name": "Pixel 3.0.12 recovery layout",
+    "partition_sha256": "9af3af2b74e944337ba85f2b0027ee80df160579a1ab746ba0f95853f618cd60",
+    "boot_sha256": "cf8a2d9f62d88f4bfd4169c11970048b3aa09d9407266807186948748ef88f4e",
+    "recovery_md5": "7d1ce81a310c52ed7afc6a0a65f3d00c"
+  }
+]

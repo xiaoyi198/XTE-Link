@@ -1,0 +1,277 @@
+diff --git a/components/ymodem/library.json b/components/ymodem/library.json
+new file mode 100644
+index 0000000..bf982ed
+--- /dev/null
++++ b/components/ymodem/library.json
+@@ -0,0 +1 @@
++{"name":"ESP32YmodemReceiver","version":"0.0.0","build":{"srcDir":".","srcFilter":["+<ymodem.c>"],"flags":["-DXTE_YMODEM_RECEIVE_ONLY"]}}
+diff --git a/components/ymodem/ymodem.c b/components/ymodem/ymodem.c
+index 739d3a5..803b8bd 100644
+--- a/components/ymodem/ymodem.c
++++ b/components/ymodem/ymodem.c
+@@ -32,10 +32,13 @@
+ #include <string.h>
+ 
+ #include "ymodem.h"
+-#include "rom/crc.h"
+-#include "driver/gpio.h"
+-#include <driver/uart.h>
+-#include "spiffs_vfs.h"
++/* XTE-Link transport/storage callbacks; keep the upstream receiver. */
++#ifndef IRAM_ATTR
++#define IRAM_ATTR
++#endif
++static struct YmodemIO *current_io;
++static int tx_failed;
++
+ 
+ 
+ //----------------------------------
+@@ -70,7 +73,7 @@ static unsigned short crc16(const unsigned char *buf, unsigned long count)
+ static int32_t Receive_Byte (unsigned char *c, uint32_t timeout)
+ {
+ 	unsigned char ch;
+-    int len = uart_read_bytes(EX_UART_NUM, &ch, 1, timeout / portTICK_RATE_MS);
++    int len = current_io->read(current_io->context, &ch, 1, timeout);
+     if (len <= 0) return -1;
+ 
+     *c = ch;
+@@ -81,13 +84,13 @@ static int32_t Receive_Byte (unsigned char *c, uint32_t timeout)
+ static void uart_consume()
+ {
+ 	uint8_t ch[64];
+-    while (uart_read_bytes(EX_UART_NUM, ch, 64, 100 / portTICK_RATE_MS) > 0) ;
++    while (current_io->read(current_io->context, ch, 64, 50) > 0) ;
+ }
+ 
+ //--------------------------------
+ static uint32_t Send_Byte (char c)
+ {
+-  uart_write_bytes(EX_UART_NUM, &c, 1);
++  if (current_io->write(current_io->context, (const uint8_t *)&c, 1) != 1) tx_failed = 1;
+   return 0;
+ }
+ 
+@@ -135,7 +138,7 @@ static void send_CRC16 ( void ) {
+ //--------------------------------------------------------------------------
+ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
+ {
+-  int count, packet_size, i;
++  int count, packet_size;
+   unsigned char ch;
+   *length = 0;
+   
+@@ -167,7 +170,6 @@ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
+     case ABORT2:
+     	return -2;
+     default:
+-    	vTaskDelay(100 / portTICK_RATE_MS);
+     	uart_consume();
+     	return -1;
+   }
+@@ -176,12 +178,8 @@ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
+   uint8_t *dptr = data+1;
+   count = packet_size + PACKET_OVERHEAD-1;
+ 
+-  for (i=0; i<count; i++) {
+-	  if (Receive_Byte(&ch, timeout) < 0) {
+-		  return -1;
+-	  }
+-	  *dptr++ = (uint8_t)ch;;
+-  }
++  /* One bounded read for the packet body, including its CRC. */
++  if (current_io->read(current_io->context, dptr, count, timeout) != count) return -1;
+ 
+   if (data[PACKET_SEQNO_INDEX] != ((data[PACKET_SEQNO_COMP_INDEX] ^ 0xff) & 0xff)) {
+       *length = -2;
+@@ -198,18 +196,27 @@ static int32_t Receive_Packet (uint8_t *data, int *length, uint32_t timeout)
+ 
+ // Receive a file using the ymodem protocol.
+ //-----------------------------------------------------------------
+-int Ymodem_Receive (FILE *ffd, unsigned int maxsize, char* getname)
++int Ymodem_Receive (struct YmodemIO *io)
+ {
++  current_io = io;
++  tx_failed = 0;
++  const unsigned int maxsize = io->expected_size;
+   uint8_t packet_data[PACKET_1K_SIZE + PACKET_OVERHEAD];
+-  uint8_t *file_ptr;
+-  char file_size[128];
+-  unsigned int i, file_len, write_len, session_done, file_done, packets_received, errors, size = 0;
++  unsigned int file_len, write_len, session_done, file_done, packets_received, errors, size = 0;
+   int packet_length = 0;
+   file_len = 0;
+-  int eof_cnt = 0;
++  int eof_cnt = 0, trailer_received = 0;
++  send_CRC16();
+   
+   for (session_done = 0, errors = 0; ;) {
+     for (packets_received = 0, file_done = 0; ;) {
++      if (tx_failed) { size = -10; goto exit; }
++      /* Leave the next JSON command untouched, but ACK a retransmitted trailer. */
++      if (trailer_received && io->control_pending(io->context)) {
++        file_done = 1;
++        session_done = 1;
++        break;
++      }
+       LED_toggle();
+       switch (Receive_Packet(packet_data, &packet_length, NAK_TIMEOUT)) {
+         case 0:  // normal return
+@@ -231,6 +238,9 @@ int Ymodem_Receive (FILE *ffd, unsigned int maxsize, char* getname)
+                 break;
+             case 0:
+                 // End of transmission
++                if (!packets_received || file_len != maxsize) {
++                  send_CA(); size = -11; goto exit;
++                }
+             	eof_cnt++;
+             	if (eof_cnt == 1) {
+             		send_NAK();
+@@ -242,7 +252,17 @@ int Ymodem_Receive (FILE *ffd, unsigned int maxsize, char* getname)
+             default:
+               // ** Normal packet **
+               if (eof_cnt > 1) {
+-          		send_ACK();
++                if (packet_data[PACKET_SEQNO_INDEX] != 0 || packet_data[PACKET_HEADER] != 0) {
++                  send_CA(); size = -12; goto exit;
++                }
++                send_ACK();
++                trailer_received = 1;
++              }
++              else if (packets_received && packet_data[PACKET_SEQNO_INDEX] == ((packets_received - 1) & 0xff)) {
++                /* Lost ACK: acknowledge the previous block without storing it twice. */
++                errors = 0;
++                if (packets_received == 1) send_ACKCRC16();
++                else send_ACK();
+               }
+               else if ((packet_data[PACKET_SEQNO_INDEX] & 0xff) != (packets_received & 0x000000ff)) {
+                 errors ++;
+@@ -259,25 +279,25 @@ int Ymodem_Receive (FILE *ffd, unsigned int maxsize, char* getname)
+                   if (packet_data[PACKET_HEADER] != 0) {
+                     errors = 0;
+                     // ** Filename packet has valid data
+-                    if (getname) {
+-                      for (i = 0, file_ptr = packet_data + PACKET_HEADER; ((*file_ptr != 0) && (i < 64));) {
+-                        *getname = *file_ptr++;
+-                        getname++;
+-                      }
+-                      *getname = '\0';
++                    /* Metadata is untrusted; the control protocol owns path and length. */
++                    const uint8_t *payload = packet_data + PACKET_HEADER;
++                    const uint8_t *end = memchr(payload, 0, packet_length);
++                    if (!end || end + 1 >= payload + packet_length) {
++                      send_CA(); size = -4; goto exit;
+                     }
+-                    for (i = 0, file_ptr = packet_data + PACKET_HEADER; (*file_ptr != 0) && (i < packet_length);) {
+-                      file_ptr++;
++                    const uint8_t *number = end + 1;
++                    size = 0;
++                    if (*number < '0' || *number > '9') { send_CA(); size = -4; goto exit; }
++                    while (number < payload + packet_length && *number >= '0' && *number <= '9') {
++                      if (size > (UINT32_MAX - (*number - '0')) / 10) { send_CA(); size = -4; goto exit; }
++                      size = size * 10 + (*number++ - '0');
+                     }
+-                    for (i = 0, file_ptr ++; (*file_ptr != ' ') && (i < FILE_SIZE_LENGTH);) {
+-                      file_size[i++] = *file_ptr++;
++                    if (number == payload + packet_length || (*number != 0 && *number != ' ')) {
++                      send_CA(); size = -4; goto exit;
+                     }
+-                    file_size[i++] = '\0';
+-                    if (strlen(file_size) > 0) size = strtol(file_size, NULL, 10);
+-                    else size = 0;
+ 
+                     // Test the size of the file
+-                    if ((size < 1) || (size > maxsize)) {
++                    if (size != maxsize) {
+                       // End session
+                       send_CA();
+                       if (size > maxsize) size = -9;
+@@ -310,8 +330,8 @@ int Ymodem_Receive (FILE *ffd, unsigned int maxsize, char* getname)
+                     }
+                     else write_len = packet_length;
+ 
+-                    int written_bytes = fwrite((char*)(packet_data + PACKET_HEADER), 1, write_len, ffd);
+-                    if (written_bytes != write_len) { //failed
++                    int written_bytes = io->store(io->context, packet_data + PACKET_HEADER, write_len);
++                    if (written_bytes < 0 || (unsigned int)written_bytes != write_len) { //failed
+                       /* End session */
+                       send_CA();
+                       size = -6;
+@@ -319,6 +339,7 @@ int Ymodem_Receive (FILE *ffd, unsigned int maxsize, char* getname)
+                     }
+                     LED_toggle();
+                   }
++                  else { send_CA(); size = -11; goto exit; }
+                   //success
+                   errors = 0;
+                   send_ACK();
+@@ -332,7 +353,7 @@ int Ymodem_Receive (FILE *ffd, unsigned int maxsize, char* getname)
+           size = -7;
+           goto exit;
+         default: // timeout
+-          if (eof_cnt > 1) {
++          if (trailer_received) {
+         	file_done = 1;
+           }
+           else {
+@@ -359,6 +380,7 @@ exit:
+   return size;
+ }
+ 
++#ifndef XTE_YMODEM_RECEIVE_ONLY
+ //------------------------------------------------------------------------------------
+ static void Ymodem_PrepareIntialPacket(uint8_t *data, char *fileName, uint32_t length)
+ {
+@@ -579,3 +601,5 @@ int Ymodem_Transmit (char* sendFileName, unsigned int sizeFile, FILE *ffd)
+   return 0; // file transmitted successfully
+ }
+ 
++
++#endif
+diff --git a/components/ymodem/ymodem.h b/components/ymodem/ymodem.h
+index 2ff39cf..f9335dd 100644
+--- a/components/ymodem/ymodem.h
++++ b/components/ymodem/ymodem.h
+@@ -31,6 +31,21 @@
+ #define __YMODEM_H__
+ 
+ #include <stdint.h>
++#include <stdio.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* XTE-Link: one prepared sink, no filesystem or UART driver in this library. */
++struct YmodemIO {
++  void *context;
++  int (*read)(void *, uint8_t *, unsigned int, unsigned int);
++  int (*write)(void *, const uint8_t *, unsigned int);
++  int (*store)(void *, const uint8_t *, unsigned int);
++  int (*control_pending)(void *);
++  unsigned int expected_size;
++};
+ 
+ // === UART DEFINES ====
+ #define EX_UART_NUM UART_NUM_0
+@@ -66,12 +81,18 @@
+ #define ABORT2                  (0x61)  /* 'a' == 0x61, abort by user */
+ 
+ #define NAK_TIMEOUT             (1000)
+-#define MAX_ERRORS              (45)
++#define MAX_ERRORS              (10)
+ 
+ #define YM_MAX_FILESIZE         (10*1024*1024)
+ 
+-int Ymodem_Receive (FILE *ffd, unsigned int maxsize, char* getname);
++int Ymodem_Receive (struct YmodemIO *io);
++#ifndef XTE_YMODEM_RECEIVE_ONLY
+ int Ymodem_Transmit (char* sendFileName, unsigned int sizeFile, FILE *ffd);
++#endif
++
++#ifdef __cplusplus
++}
++#endif
+ 
+ 
+ #endif

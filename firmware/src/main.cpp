@@ -10,6 +10,7 @@
 #include "protocol.h"
 #include "sleep_art.h"
 #include "sleep_image.h"
+#include "ui_assets.h"
 #include "tf_transfer.h"
 #include "tf_font.h"
 #include "settings.h"
@@ -72,7 +73,7 @@ uint8_t selectedGroup = 0;
 uint8_t selectedSetting = 0;
 uint8_t draftSetting = 0;
 const char* settingsMessage = nullptr;
-constexpr const char* FIRMWARE_VERSION = "settings-center-20261018";
+constexpr const char* FIRMWARE_VERSION = "installer-20261019";
 std::vector<String> gallery;
 uint16_t gallerySelection = 0;
 uint16_t fastRefreshes = 0;
@@ -105,6 +106,7 @@ class FrameGraphics : public Adafruit_GFX {
   }
 };
 FrameGraphics graphics;
+xte::UiAssets uiAssets;
 
 void text(int16_t x, int16_t y, uint8_t size, const char* value) {
   graphics.setCursor(x, y);
@@ -112,7 +114,10 @@ void text(int16_t x, int16_t y, uint8_t size, const char* value) {
   graphics.print(value);
 }
 
-void uiText(int16_t x, int16_t y, const char* value, uint16_t maxWidth = 0) {
+using FontFace = xte::TfFont::Face;
+void uiText(int16_t x, int16_t y, const char* value, uint16_t maxWidth = 0,
+            FontFace face = FontFace::Body32) {
+  font.select(face);
   font.draw(graphics, x, y, value, maxWidth ? maxWidth : graphics.width() - x);
 }
 
@@ -158,13 +163,13 @@ void renderButtonHints() {
       0x18, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     },
   };
-  graphics.drawBitmap(342, 8, icons[3], 16, 16, 0);
-  graphics.drawBitmap(442, 8, icons[2], 16, 16, 0);
+  if (!uiAssets.draw(xte::UiAssets::LEFT, 342, 8)) graphics.drawBitmap(342, 8, icons[3], 16, 16, 0);
+  if (!uiAssets.draw(xte::UiAssets::RIGHT, 442, 8)) graphics.drawBitmap(442, 8, icons[2], 16, 16, 0);
   const int16_t right = graphics.width() - 20;
-  graphics.drawBitmap(right, 104, icons[0], 16, 16, 0);
-  graphics.drawBitmap(right, 192, icons[1], 16, 16, 0);
-  graphics.drawBitmap(right, 280, icons[4], 16, 16, 0);
-  graphics.drawBitmap(right, 368, icons[5], 16, 16, 0);
+  if (!uiAssets.draw(xte::UiAssets::UP, right, 104)) graphics.drawBitmap(right, 104, icons[0], 16, 16, 0);
+  if (!uiAssets.draw(xte::UiAssets::DOWN, right, 192)) graphics.drawBitmap(right, 192, icons[1], 16, 16, 0);
+  if (!uiAssets.draw(xte::UiAssets::CONFIRM, right, 280)) graphics.drawBitmap(right, 280, icons[4], 16, 16, 0);
+  if (!uiAssets.draw(xte::UiAssets::BACK, right, 368)) graphics.drawBitmap(right, 368, icons[5], 16, 16, 0);
 }
 
 uint8_t batteryBars(uint16_t millivolts) {
@@ -187,6 +192,7 @@ void renderBattery() {
   graphics.fillRect(770, 66, 3, 6, 0);
   graphics.fillRect(746, 64, batteryBars(batteryMv), 10, 0);
   if (!usbPowered) return;
+  if (uiAssets.draw(xte::UiAssets::EXTERNAL_POWER, 716, 56)) return;
   static constexpr uint8_t bolt[13] = {0x07, 0x0e, 0x1c, 0x38, 0x70, 0xff, 0xff,
                                        0x0e, 0x1c, 0x38, 0x70, 0x60, 0x40};
   graphics.drawBitmap(732, 62, bolt, 8, 13, 0);
@@ -206,7 +212,7 @@ void metric(int16_t x, int16_t y, const char* label, const char* value) {
   text(x, y + 54, 3, value);
 }
 
-// Icons use the existing GFX primitives and the SDK's single framebuffer.
+// TF icons use the existing single framebuffer; GFX primitives remain a fallback.
 void renderAppMenu() {
   constexpr const char* labels[MENU_PAGE_COUNT][MENU_TILE_COUNT] = {
     {"电脑状态", "系统音量", "助手控制", "设置"},
@@ -219,7 +225,9 @@ void renderAppMenu() {
     graphics.drawRect(x, y, 348, 132, 0);
     if (selected) graphics.drawRect(x + 3, y + 3, 342, 126, 0);
     const int16_t ix = x + 24, iy = y + 32;
-    if (menuPage == 1) {
+    if (uiAssets.draw(static_cast<xte::UiAssets::Icon>(menuPage * MENU_TILE_COUNT + i), ix, iy)) {
+      // Complete TF icon; labels, focus and approval badges keep their layout.
+    } else if (menuPage == 1) {
       if (i == 0) {
         // Lightning: shortcut placeholder, using the existing GFX primitives.
         graphics.fillRect(ix + 30, iy, 20, 6, 0);
@@ -269,8 +277,8 @@ void renderAppMenu() {
       }
     }
     if (menuPage == 1 && i == 1)
-      text(x + 112, y + 50, 3, labels[menuPage][i]);  // 198 px; TF text would be 250 px.
-    else font.draw(graphics, x + 112, y + 42, labels[menuPage][i], 220);
+      text(x + 112, y + 50, 3, labels[menuPage][i]);  // Keep the existing compact Latin menu label.
+    else uiText(x + 112, y + 34, labels[menuPage][i], 220, FontFace::Title40);
     if (selected) graphics.fillRect(x + 112, y + 99, 64, 4, 0);
     if (menuPage == 0 && i == 2 && settings.reminderMode && pendingApprovals()) {
       char count[4]; snprintf(count, sizeof(count), "%u", static_cast<unsigned>(pendingApprovals()));
@@ -310,11 +318,11 @@ void renderStatusPage() {
 }
 
 void renderVolumePage() {
-  uiText(48, 116, "系统音量");
+  uiText(48, 116, "系统音量", 0, FontFace::Title40);
   char value[24];
   if (haveStatus && std::isfinite(status.volume)) snprintf(value, sizeof(value), "%.0f %%", status.volume);
   else strcpy(value, "--");
-  text(48, 174, 5, value);
+  uiText(48, 174, value, 704, FontFace::Numbers64);
   graphics.drawRect(48, 268, 704, 34, 0);
   if (haveStatus && std::isfinite(status.volume)) {
     const int width = static_cast<int>(status.volume * 698.0f / 100.0f);
@@ -442,11 +450,14 @@ void settingValue(uint8_t index, uint8_t choice, char* value, size_t size) {
   snprintf(value, size, "%s", label);
 }
 
-void settingsRow(int16_t y, const char* label, const char* value, bool selected = false) {
+void settingsRow(int16_t y, const char* label, const char* value, bool selected = false, uint8_t group = GROUP_COUNT) {
   if (selected) graphics.fillRect(28, y, 744, 42, 0);
   const uint16_t color = selected ? 1 : 0;
-  font.draw(graphics, 48, y, label, 342, color);
-  font.draw(graphics, 410, y, value, 342, color);
+  const bool icon = group < GROUP_COUNT && uiAssets.draw(
+      static_cast<xte::UiAssets::Icon>(xte::UiAssets::DISPLAY_SETTINGS + group), 40, y + 5, selected);
+  font.select(FontFace::Caption24);
+  font.draw(graphics, icon ? 88 : 48, y + 3, label, icon ? 302 : 342, color);
+  font.draw(graphics, 410, y + 3, value, 342, color);
 }
 
 uint8_t pendingApprovals() {
@@ -469,14 +480,15 @@ void renderSettingsPage() {
                                haveStatus && millis() - lastContact < OFFLINE_MS ? "在线" : "等待");
       else if (i == 4) settingValue(REMINDER, settings.reminderMode, value, sizeof(value));
       else snprintf(value, sizeof(value), "%s", SdMan.ready() ? "TF已挂载" : "TF未挂载");
-      settingsRow(138 + i * 42, groupLabel(i), value, i == selectedGroup);
+      settingsRow(138 + i * 42, groupLabel(i), value, i == selectedGroup, i);
     }
     return;
   }
   if (settingsMode == SettingsMode::INFO) {
     settingsRow(146, "固件版本", ""); text(410, 158, 2, FIRMWARE_VERSION);
     settingsRow(188, "TF卡状态", SdMan.ready() ? "已挂载" : "未挂载");
-    settingsRow(230, "字库状态", font.healthy() ? "读取正常" : "读取失败");
+    uiAssets.draw(xte::UiAssets::TF_CARD, 370, 196);
+    settingsRow(230, "字库状态", font.healthy() ? "MiSans 读取正常" : "MiSans 读取失败");
     snprintf(value, sizeof(value), "%u bytes", static_cast<unsigned>(ESP.getFreeHeap()));
     settingsRow(272, "可用内存", ""); text(410, 284, 2, value);
     snprintf(value, sizeof(value), "%u mV", static_cast<unsigned>(batteryMv));
@@ -517,9 +529,10 @@ void renderSettingsPage() {
         const bool selected = i == gallerySelection;
         if (selected) graphics.fillRect(28, y, 744, 42, 0);
         const char* path = gallery[i].c_str();
-        font.draw(graphics, 48, y, strrchr(path, '/') + 1, 660, selected ? 1 : 0);
+        font.select(FontFace::Caption24);
+        font.draw(graphics, 48, y + 3, strrchr(path, '/') + 1, 660, selected ? 1 : 0);
         if (settings.imageMode == 1 && !strcmp(path, settings.sleepFile))
-          font.draw(graphics, 710, y, "*", 40, selected ? 1 : 0);
+          font.draw(graphics, 710, y + 3, "*", 40, selected ? 1 : 0);
       }
     }
     if (settingsMessage) uiText(48, 348, settingsMessage, 704);
@@ -573,7 +586,8 @@ void renderClashPage() {
       const xte::ClashPanel::Row& row = clash.rows[i];
       graphics.setTextColor(color);
       text(40, y + 12, 2, row.current ? "*" : row.enabled ? ">" : "-");
-      font.draw(graphics, 68, y, row.name, 680, color);
+      font.select(FontFace::Caption24);
+      font.draw(graphics, 68, y + 3, row.name, 680, color);
     }
     graphics.setTextColor(0);
     if (!clash.count) uiText(48, 190, "暂无条目", 704);
@@ -581,29 +595,27 @@ void renderClashPage() {
   }
 }
 
-void render(bool online, bool full, bool half = false) {
-  const uint32_t started = millis();
-  if (!appMenu && page == Page::SETTINGS && settingsMode == SettingsMode::PREVIEW) {
-    if (renderGalleryPreview()) { lastRendered = started; fastRefreshes = 0; return; }
-    full = true; // Failed preview may have modified the shared framebuffer.
-  }
-  if (!half && settings.ghostEvery() && fastRefreshes >= settings.ghostEvery() - 1) full = true;
-  font.beginRender();
+void renderFrame(bool online) {
+  uiAssets.begin(display.getFrameBuffer());
+  font.beginRender(FontFace::Body32);
   display.clearScreen();
   graphics.setTextColor(0);
   graphics.setTextWrap(false);
-  text(28, 20, 3, "XTE-Link");
+  const bool logo = uiAssets.draw(xte::UiAssets::LOGO, 28, 12);
+  text(logo ? 68 : 28, 20, 3, "XTE-Link");
   const char* connection = online ? "在线" : haveStatus ? "离线" : "等待连接";
   if (!online && !haveStatus && network.isLan())
     connection = !network.ready() ? "缺少WiFi配置" : WiFi.status() != WL_CONNECTED ? "WiFi连接中" : "等待驱动";
-  uiText(570, 8, connection, 202);
+  uiText(570, 8, connection, 202, FontFace::Caption24);
+  uiAssets.draw(network.isLan() ? (WiFi.status() == WL_CONNECTED ? xte::UiAssets::WIFI : xte::UiAssets::OFFLINE)
+                               : xte::UiAssets::USB, 540, 15);
   renderBattery();
   char hostLabel[31];
   snprintf(hostLabel, sizeof(hostLabel), "%.30s", haveStatus ? status.host : network.isLan() ? "LAN TCP" : "USB SERIAL");
   text(28, 58, 2, hostLabel);
   if (settings.reminderMode && pendingApprovals() && !(appMenu && menuPage == 0)) {
     char count[32]; snprintf(count, sizeof(count), "待审批 %u", static_cast<unsigned>(pendingApprovals()));
-    uiText(400, 44, count, 312);
+    uiText(400, 44, count, 312, FontFace::Caption24);
   }
   graphics.drawFastHLine(28, 88, 744, 0);
   if (appMenu) renderAppMenu();
@@ -614,31 +626,63 @@ void render(bool online, bool full, bool half = false) {
   else renderSettingsPage();
   graphics.drawFastHLine(28, 400, 744, 0);
   if (appMenu) {
-    uiText(28, 412, "左右翻页  上下选择  确认打开", 744);
+    uiText(28, 412, "左右翻页  上下选择  确认打开", 744, FontFace::Caption24);
   } else if (page == Page::CLASH) {
     uiText(28, 412, clash.pending ? "正在读取  返回取消等待" :
-                               "上下选择  左右翻页  确认进入", 744);
+                               "上下选择  左右翻页  确认进入", 744, FontFace::Caption24);
   } else if (page == Page::SETTINGS) {
     const char* hint = settingsMode == SettingsMode::HOME ? "上下选择  确认打开  返回菜单" :
                        settingsMode == SettingsMode::LIST ? "上下选择  确认打开  返回分类" :
                        settingsMode == SettingsMode::EDIT ? "左右调整  确认保存  返回取消" :
                        settingsMode == SettingsMode::GALLERY ? "上下选择  确认预览  返回列表" :
                        settingsMode == SettingsMode::RESET ? "确认恢复  返回取消" : "确认刷新  返回列表";
-    uiText(28, 412, hint, 744);
+    uiText(28, 412, hint, 744, FontFace::Caption24);
   } else {
-    uiText(28, 412, "返回菜单", 180);
+    uiText(28, 412, "返回菜单", 180, FontFace::Caption24);
     text(230, 424, 2, haveStatus ? status.time : "--");
   }
   renderButtonHints();
   font.endRender();
+}
+
+void render(bool online, bool full, bool half = false) {
+  const uint32_t started = millis();
+  if (!appMenu && page == Page::SETTINGS && settingsMode == SettingsMode::PREVIEW) {
+    if (renderGalleryPreview()) { lastRendered = started; fastRefreshes = 0; return; }
+    full = true;
+  }
+  if (!half && settings.ghostEvery() && fastRefreshes >= settings.ghostEvery() - 1) full = true;
+  renderFrame(online);
   display.displayBuffer(full ? EInkDisplay::FULL_REFRESH :
                         half ? EInkDisplay::HALF_REFRESH : EInkDisplay::FAST_REFRESH);
+  const bool gray = uiAssets.hasGray();
+  if (gray) {
+    bool okay = uiAssets.drawPlane(xte::SleepImage::LSB);
+    if (okay) {
+      display.copyGrayscaleLsbBuffers(display.getFrameBuffer());
+      okay = uiAssets.drawPlane(xte::SleepImage::MSB);
+    }
+    if (okay) {
+      display.copyGrayscaleMsbBuffers(display.getFrameBuffer());
+      display.displayGrayBuffer();
+    }
+    // Rebuild BW in place, avoiding a second 48 KB framebuffer. Restore the
+    // controller's differential baseline for subsequent fast updates.
+    renderFrame(online);
+    if (okay) display.cleanupGrayscaleBuffers(display.getFrameBuffer());
+    else {
+      display.displayBuffer(EInkDisplay::FULL_REFRESH);
+      full = true;
+      Serial.println("XTE: UI gray read failed; monochrome fallback");
+    }
+  }
   if (full) fastRefreshes = 0;
   else if (!half && fastRefreshes < UINT16_MAX) ++fastRefreshes;
   lastRendered = started;
-  Serial.printf("XTE: rendered %s in %lu ms, heap=%u battery=%umV\n", full ? "full" : half ? "half" : "fast",
+  Serial.printf("XTE: rendered %s in %lu ms, heap=%u battery=%umV assets=%u missing=%u gray=%u\n", full ? "full" : half ? "half" : "fast",
                 static_cast<unsigned long>(millis() - started), static_cast<unsigned>(ESP.getFreeHeap()),
-                static_cast<unsigned>(batteryMv));
+                static_cast<unsigned>(batteryMv), static_cast<unsigned>(uiAssets.loaded()),
+                static_cast<unsigned>(uiAssets.missing()), static_cast<unsigned>(gray));
   if (!font.healthy()) Serial.printf("XTE: font boxes: %s\n", font.error());
 }
 
@@ -1086,7 +1130,17 @@ bool handleUsbLine(char* line, size_t length) {
   if (tf.handle(line, length)) return true;
   StaticJsonDocument<256> doc;
   if (xte::readControl(line, length, doc)) {
-    if (doc["cmd"] == "hello") { network.info(); return true; }
+    if (doc["cmd"] == "hello") {
+      network.info(0, nullptr, FIRMWARE_VERSION);
+      Serial.printf("XTE: firmware %s\n", FIRMWARE_VERSION);
+      return true;
+    }
+    if (doc["cmd"] == "resources_ready" && !tf.active()) {
+      forceFull = true;
+      renderNow = true;
+      Serial.println("XTE: resources ready");
+      return true;
+    }
     if (doc["cmd"] == "network_commit") {
       if (!doc["id"].is<uint32_t>()) return true;
       network.info(doc["id"], tf.active() ? "busy" : network.commitConfig());
@@ -1112,8 +1166,8 @@ bool renderSleepImage(const char* previewPath = nullptr) {
   const auto hints = [&]() {
     if (!previewPath) return;
     graphics.fillRect(0, 420, 800, 60, 1);
-    font.beginRender();
-    uiText(28, 428, "左右换图  确认固定  返回图库", 744);
+    font.beginRender(FontFace::Caption24);
+    uiText(28, 428, "左右换图  确认固定  返回图库", 744, FontFace::Caption24);
     font.endRender();
   };
   if (!image.draw(frame, xte::SleepImage::BASE)) return false;
@@ -1155,8 +1209,8 @@ void renderSleep() {
       }
     }
   }
-  font.beginRender();
-  uiText(337, 408, "休眠中", 126);
+  font.beginRender(FontFace::Body32);
+  uiText(352, 408, "休眠中", 96);
   font.endRender();
   display.displayBuffer(EInkDisplay::FULL_REFRESH);
 }
@@ -1232,7 +1286,7 @@ void handlePowerButton() {
 
 void setup() {
   initializePower();
-  if (Serial.setRxBufferSize(1024) != 1024) {
+  if (Serial.setRxBufferSize(2048) != 2048 || Serial.setTxBufferSize(2048) != 2048) {
     Serial.begin(115200);
     Serial.println("XTE: USB RX allocation failed");
     while (true) delay(1000);
@@ -1256,7 +1310,8 @@ void setup() {
   }
   network.begin();
   display.begin();
-  Serial.printf("XTE: font reader bytes=%u path=%s\n", static_cast<unsigned>(sizeof(font)), xte::TfFont::PATH);
+  Serial.printf("XTE: MiSans font reader bytes=%u body=%s\n", static_cast<unsigned>(sizeof(font)),
+                xte::TfFont::path(FontFace::Body32));
   pinMode(USB_DETECT, INPUT);
   usbPowered = digitalRead(USB_DETECT) == HIGH;
   sampleBattery();
@@ -1264,7 +1319,7 @@ void setup() {
   render(false, true);
   renderNow = false; halfRefresh = false;
   Serial.println("XTE: ready protocol=2 max_payload=384");
-  network.info();
+  network.info(0, nullptr, FIRMWARE_VERSION);
 }
 
 void loop() {

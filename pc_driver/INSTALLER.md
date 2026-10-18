@@ -1,0 +1,70 @@
+# 单 EXE 设备安装与维护
+
+在 Windows x64 上双击 `XTE-Link.exe`，首次自动打开安装窗口；以后通过托盘的
+“设备安装与维护”进入。重复启动新版 EXE 会唤起窗口，不启动第二个驱动实例。
+先退出旧版 EXE 和串口监视器。用可传数据的 USB 线连接、唤醒初代 Xteink X4，并插入可用 TF 卡。
+
+## 四个入口
+
+- **一键完整安装／更新**：校验内置资源，准备字库，备份／刷应用，写字库与素材，逐文件校验并刷新设备。
+- **刷入配套固件**：只安装该 EXE 内置的固定版本应用。保留设置、TF、引导器及恢复程序。
+- **下载构建并安装字库**：官方下载 MiSans 4.009，本机生成 24/32/40px 中文及 64px 数字字库，写入 `/fonts/`。
+- **安装内置图片素材**：安装 30 个灰度 UI 图标／Logo 到 `/xte-link/ui/gray-flat-v1/`，两张屏保到 `/.sleep/`。
+
+“导入官方字体包”可以选择已从小米官网下载的 `MiSans.zip`；程序会校验固定 SHA-256。
+首次下载约 228 MB；生成的四份字库共 11,944,420 字节。后续优先使用已校验的本机缓存。
+EXE 不包含和公开分发字体 ZIP、TTF 或 EPDF。XTE-Link 使用由小米提供的 MiSans 字体，
+遵循仓库已有的官方获取、本机生成方式；完整许可可在窗口中导出。
+
+## 文件、备份与重试
+
+电脑配置、日志、安装缓存和备份存于 `%USERPROFILE%/.xte-link/`。
+每台设备的完整 Flash 备份和更新记录位于 `backups/<USB MAC>/`。
+新设备首次操作自动读取完整 16 MiB Flash，校验后保存；已有有效且匹配的备份会复用。
+已刷过第三方系统的备份称为“当前系统备份”，不能称为原厂备份。
+每个不同的更新前应用分区也单独保存，不覆盖旧版本。
+
+TF 写入复用现有 YMODEM-1K，包含设备完整重读 SHA-256；原 JSON 上传保留。
+字库与图片先写入 `.xte-next` 候选路径，回读校验后将旧文件改名为 `.xte-old`，
+再将候选文件切换到最终路径。最终路径重新校验成功后才清理旧文件。
+它不是跨多个 FAT 文件的原子事务；常见中断状态可在下次执行时恢复，冲突则保留文件并报错。
+相同大小和 SHA-256 的文件跳过；不格式化卡，不清空图库，不删除旧 Zheng 字库或用户图片。
+
+“停止”在安全阶段生效；正在写入的固件会先完成校验，不强制终止写入线程。
+刷写中断可能使当前应用暂时无法启动，但 USB 刷机与原恢复槽保留；可重试刷入配套固件。
+成功必须经过刷后独立校验、应用完整读回、系统区和恢复区对比以及新版本启动握手。
+资源安装还要求收到设备刷新确认。
+
+## 支持范围
+
+目前支持初代 ESP32-C3、16 MiB Flash，且使用已验证 Pixel 3.0.12 引导器／恢复分区布局的设备，
+包括沿用该布局的 XTE-Link。工具读取目标实际分区表，再核对引导器、分区摘要、OTA CRC／状态、
+恢复应用摘要及应用容量，不仅依据 USB VID/PID 判断兼容性。
+不支持 X4 Classic／Pro、安全启动或 Flash 加密设备。未知原厂和其他第三方布局会停止刷写，
+不会套用验证设备的地址、改写分区或自动切换启动槽。
+原厂首次安装与更多布局需要另有实机证据后再加入 `device_profiles.json`。
+
+## 可复现构建
+
+固定 Python 3.11、PlatformIO／SDK／YMODEM 版本见根目录配置和子模块。
+安装驱动构建依赖，应用 SDK 与 YMODEM 补丁，再构建固件：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r pc_driver/requirements-build.txt
+.\.venv\Scripts\python.exe scripts/apply_sdk_patch.py
+.\.venv\Scripts\python.exe scripts/apply_ymodem_patch.py
+.\.venv\Scripts\python.exe -m platformio run -e xteink_x4
+.\.venv\Scripts\python.exe scripts/build_driver.py --firmware 'backups/firmware/此次归档目录'
+```
+
+构建时验证归档镜像和源码摘要，拒绝把旧镜像误打包为当前版本。原样打包 Arduino-ESP32 固定包中的
+Espressif `gen_esp32part.py`，不重写分区解析器；来源与摘要存于资源清单。
+SDK 新增的 `space()` 仅转接 SdFat 原有容量接口，补丁包含在源码及固件归档元数据中。
+esptool 固定为 4.9.0；Python、Pillow／FreeType、fontTools 和依赖固定并随 EXE 携带。
+
+发布产物包含 SHA-256、安装清单、依赖记录、说明、第三方许可与对应源码；这些也内置于 EXE，
+用户可以通过“说明、许可与源码”导出，无需持有旁置文件。
+esptool 为 GPL-2.0-or-later，各第三方保留自己的许可。依赖快照和项目来源见内置源码包。
+
+`--self-test <结果.json> [官方MiSans.zip]` 是不访问设备的发行自检；用于核对冻结运行库、
+内置资源和可选的字库生成。运行 EXE 不会调用系统 Python、pip、PlatformIO 或外部刷机程序。

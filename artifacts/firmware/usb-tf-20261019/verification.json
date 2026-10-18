@@ -1,0 +1,410 @@
+{
+  "created_shanghai": "2026-10-19T01:45:19.602835+08:00",
+  "device": "a053651b5bf8",
+  "mac": "f8:5b:1b:65:53:a0",
+  "port": "COM3",
+  "firmware": {
+    "sha256": "33a945ab0ad03342f4e13c92684d05d19d7027e79af5a1ffbd7d81d75d849d90",
+    "bytes": 932480,
+    "slot": "app1",
+    "offset": "0x650000",
+    "static_ram_bytes": 105652,
+    "program_bytes": 891654,
+    "diagnostic_benchmark_excluded": true
+  },
+  "flash_verification": {
+    "app1_verify_flash": true,
+    "app1_full_readback_sha256": "33a945ab0ad03342f4e13c92684d05d19d7027e79af5a1ffbd7d81d75d849d90",
+    "system_64k_identical": true,
+    "recovery_app0_md5_verified": true
+  },
+  "driver": {
+    "path": "artifacts/pc-driver/20261019-014048/XTE-Link.exe",
+    "sha256": "4325c23226de69662ce3ba97590393726fb7a6ba4717cdea9f17ae6a56338067",
+    "pyinstaller_modules_verified": [
+      "ymodem.Socket",
+      "ordered_set",
+      "pc_driver.tf",
+      "pc_driver.network"
+    ],
+    "source_hashes": {
+      "pc_driver/tf.py": "7d54e95aa4c293270e7f25e04beb1a3adfedf8a4e9c8a5033d9685b9c21aa2d0",
+      "pc_driver/network.py": "c2cdc0c290e00d393a20b72b666248580c882202cf66873865695cb706938c9b",
+      "pc_driver/tray.py": "ee09f9d56a7270b76febfc3d0d2f50de1ac153acc2f927a8a279b23e35ab725c",
+      "pc_driver/requirements.txt": "f108e2260edf4bf3ca2f0882954c4089ebfbc17b90867de7da40f16bfaeab701",
+      "scripts/build_driver.py": "410c650da07150ca9ea1d5d364429ea48ddbaaf5daf764c4572a5f306aaaf656"
+    },
+    "runtime_verified": {
+      "startup_shanghai": "2026-10-19 01:44:42",
+      "markers": [
+        "Codex Desktop IPC connected",
+        "Codex Desktop state synchronized",
+        "XTE: accepted",
+        "XTE: pong"
+      ],
+      "real_approval_proxy_tun_actions_sent": false
+    }
+  },
+  "benchmarks": [
+    {
+      "test": "boundary-0",
+      "bytes": 0,
+      "seconds": 1.0779999999995198,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "boundary-1",
+      "bytes": 1,
+      "seconds": 1.0619999999998981,
+      "sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "boundary-127",
+      "bytes": 127,
+      "seconds": 1.0780000000013388,
+      "sha256": "92ca0fa6651ee2f97b884b7246a562fa71250fedefe5ebf270d31c546bfea976",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "boundary-128",
+      "bytes": 128,
+      "seconds": 1.0779999999995198,
+      "sha256": "471fb943aa23c511f6f72f8d1652d9c880cfa392ad80503120547703e56a2be5",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "boundary-129",
+      "bytes": 129,
+      "seconds": 1.0789999999997235,
+      "sha256": "5099c6a56203f9687f7d33f4bfdf576d31dc91f6b695ecea38b2770c87631135",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "boundary-1023",
+      "bytes": 1023,
+      "seconds": 1.0779999999995198,
+      "sha256": "84d353b0e5a01f3e12370cd86b340c1fa07fd8a91490d67eb06b91206df54bc4",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "boundary-1024",
+      "bytes": 1024,
+      "seconds": 1.0779999999995198,
+      "sha256": "785b0751fc2c53dc14a4ce3d800e69ef9ce1009eb327ccf458afe09c242c26c9",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "boundary-1025",
+      "bytes": 1025,
+      "seconds": 1.0789999999997235,
+      "sha256": "b3981d93eeb64aa900f3e48cfcd48e9bbc89b77732c49ea201c93656c62b6a09",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "fast-65539-0",
+      "bytes": 65539,
+      "seconds": 1.5779999999995198,
+      "sha256": "32beb7b57583420f652233c9c0b774fbe19e611c9374f26c5b4722e5c940cf05",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "fast-65539-1",
+      "bytes": 65539,
+      "seconds": 1.5310000000008586,
+      "sha256": "32beb7b57583420f652233c9c0b774fbe19e611c9374f26c5b4722e5c940cf05",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "fast-65539-2",
+      "bytes": 65539,
+      "seconds": 1.5310000000008586,
+      "sha256": "32beb7b57583420f652233c9c0b774fbe19e611c9374f26c5b4722e5c940cf05",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "fast-1048589-0",
+      "bytes": 1048589,
+      "seconds": 8.343999999999141,
+      "sha256": "5a0fe938ec406409eab0d9c8703b4d8e17171660bd3d58d1c90493d2ab72016f",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "fast-1048589-1",
+      "bytes": 1048589,
+      "seconds": 8.343000000000757,
+      "sha256": "5a0fe938ec406409eab0d9c8703b4d8e17171660bd3d58d1c90493d2ab72016f",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "fast-1048589-2",
+      "bytes": 1048589,
+      "seconds": 8.359999999998763,
+      "sha256": "5a0fe938ec406409eab0d9c8703b4d8e17171660bd3d58d1c90493d2ab72016f",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "fast-4194333-0",
+      "bytes": 4194333,
+      "seconds": 30.186999999999898,
+      "sha256": "80fac3198e12d7de8b3cd7fb958d81fe60ead8874f76aee7af7ad72c40a3584f",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "legacy-65539",
+      "bytes": 65539,
+      "seconds": 2.0160000000014406,
+      "sha256": "32beb7b57583420f652233c9c0b774fbe19e611c9374f26c5b4722e5c940cf05",
+      "transport": "legacy",
+      "fault": null
+    },
+    {
+      "test": "legacy-1048589",
+      "bytes": 1048589,
+      "seconds": 31.40599999999904,
+      "sha256": "5a0fe938ec406409eab0d9c8703b4d8e17171660bd3d58d1c90493d2ab72016f",
+      "transport": "legacy",
+      "fault": null
+    }
+  ],
+  "current_driver_confirmed_uploads": [
+    {
+      "bytes": 65539,
+      "sha256": "32beb7b57583420f652233c9c0b774fbe19e611c9374f26c5b4722e5c940cf05",
+      "seconds": 1.5930000000007567,
+      "remote": "/xte-link/usb-test-20261019/final-65539.bin"
+    },
+    {
+      "bytes": 1048589,
+      "sha256": "5a0fe938ec406409eab0d9c8703b4d8e17171660bd3d58d1c90493d2ab72016f",
+      "seconds": 8.343999999999141,
+      "remote": "/xte-link/usb-test-20261019/final-1048589.bin"
+    },
+    {
+      "bytes": 4194333,
+      "sha256": "80fac3198e12d7de8b3cd7fb958d81fe60ead8874f76aee7af7ad72c40a3584f",
+      "seconds": 30.15600000000086,
+      "remote": "/xte-link/usb-test-20261019/final-4194333.bin"
+    }
+  ],
+  "sd_benchmark": {
+    "id": 995386084,
+    "ok": true,
+    "write_us": 3830002,
+    "read_hash_us": 3039043,
+    "read_io_us": 2982203,
+    "sha256": "fe933bb4cc3ec0085f624923735cf6454f756934cdf2387d8e00fd1ce2fb742b",
+    "size": 2097165,
+    "heap": 151356,
+    "stack_min_free": 2180
+  },
+  "device_faults": [
+    {
+      "test": "boundary-1",
+      "bytes": 1,
+      "seconds": 1.1090000000003783,
+      "sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "fault-crc",
+      "bytes": 65539,
+      "seconds": 2.5319999999992433,
+      "sha256": "32beb7b57583420f652233c9c0b774fbe19e611c9374f26c5b4722e5c940cf05",
+      "transport": "ymodem1k",
+      "fault": "crc"
+    },
+    {
+      "test": "fault-drop-header-ack",
+      "bytes": 65539,
+      "seconds": 2.5310000000008586,
+      "sha256": "32beb7b57583420f652233c9c0b774fbe19e611c9374f26c5b4722e5c940cf05",
+      "transport": "ymodem1k",
+      "fault": "drop-header-ack"
+    },
+    {
+      "test": "fault-drop-data255-ack",
+      "bytes": 307217,
+      "seconds": 4.20299999999952,
+      "sha256": "1ffd5cb09731f80af59ddb6def810c865eeb9ef39e3c4aa223591997001dfd71",
+      "transport": "ymodem1k",
+      "fault": "drop-data255-ack"
+    },
+    {
+      "test": "fault-drop-data0-ack",
+      "bytes": 307217,
+      "seconds": 4.203000000001339,
+      "sha256": "1ffd5cb09731f80af59ddb6def810c865eeb9ef39e3c4aa223591997001dfd71",
+      "transport": "ymodem1k",
+      "fault": "drop-data0-ack"
+    },
+    {
+      "test": "fault-drop-trailer-ack",
+      "bytes": 65539,
+      "seconds": 2.514999999999418,
+      "sha256": "32beb7b57583420f652233c9c0b774fbe19e611c9374f26c5b4722e5c940cf05",
+      "transport": "ymodem1k",
+      "fault": "drop-trailer-ack"
+    },
+    {
+      "test": "no-overwrite",
+      "preserved": true
+    },
+    {
+      "test": "cancel",
+      "recovered": true,
+      "partial_file_removed": true
+    },
+    {
+      "test": "metadata",
+      "recovered": true,
+      "partial_file_removed": true
+    },
+    {
+      "test": "timeout",
+      "recovered": true,
+      "partial_file_removed": true
+    },
+    {
+      "test": "sha-mismatch",
+      "recovered": true,
+      "partial_file_removed": true
+    },
+    {
+      "test": "after-faults",
+      "bytes": 1025,
+      "seconds": 1.0780000000013388,
+      "sha256": "b3981d93eeb64aa900f3e48cfcd48e9bbc89b77732c49ea201c93656c62b6a09",
+      "transport": "ymodem1k",
+      "fault": null
+    },
+    {
+      "test": "resource-listings-preserved",
+      "fonts": true,
+      "skins": true,
+      "ui": true
+    }
+  ],
+  "independent_download": [
+    {
+      "trial": 0,
+      "seconds": 36.53199999999924,
+      "bytes": 1048589,
+      "sha256": "5a0fe938ec406409eab0d9c8703b4d8e17171660bd3d58d1c90493d2ab72016f",
+      "probes": 49
+    }
+  ],
+  "additional_verified_downloads": [
+    {
+      "bytes": 1048589,
+      "seconds": 23.203,
+      "sha256": "5a0fe938ec406409eab0d9c8703b4d8e17171660bd3d58d1c90493d2ab72016f"
+    },
+    {
+      "bytes": 1048589,
+      "seconds": 22.86,
+      "sha256": "5a0fe938ec406409eab0d9c8703b4d8e17171660bd3d58d1c90493d2ab72016f"
+    },
+    {
+      "bytes": 1048589,
+      "seconds": 21.64,
+      "sha256": "5a0fe938ec406409eab0d9c8703b4d8e17171660bd3d58d1c90493d2ab72016f"
+    }
+  ],
+  "tray_picture": {
+    "interface": "Session.upload_sleep_images",
+    "bytes": 192070,
+    "seconds": 2.5,
+    "sha256": "5e42eb1cf3107bddc01861738fd8523bee03cb42b0c4f826e4fd4ec300052005",
+    "readback_byte_equal": true,
+    "remote": "/xte-link/usb-test-20261019-faults/tray-picture.bmp"
+  },
+  "tests": {
+    "pc_driver": 96,
+    "c_receiver": 22,
+    "pc_to_c_interop": 10,
+    "target_Wall_Wextra_Werror": true,
+    "settings_host": true,
+    "gray_ui_30_bmp_pixel_checks": true,
+    "clean_submodule_patch_reproduced": true
+  },
+  "cleanup": {
+    "deleted": [
+      "/xte-link/usb-test-20261019/fast-1048589-0.bin",
+      "/xte-link/usb-test-20261019/boundary-0.bin",
+      "/xte-link/usb-test-20261019/boundary-1.bin",
+      "/xte-link/usb-test-20261019/boundary-127.bin",
+      "/xte-link/usb-test-20261019/boundary-128.bin",
+      "/xte-link/usb-test-20261019/boundary-129.bin",
+      "/xte-link/usb-test-20261019/boundary-1023.bin",
+      "/xte-link/usb-test-20261019/boundary-1024.bin",
+      "/xte-link/usb-test-20261019/boundary-1025.bin",
+      "/xte-link/usb-test-20261019/fast-65539-0.bin",
+      "/xte-link/usb-test-20261019/fast-65539-1.bin",
+      "/xte-link/usb-test-20261019/fast-65539-2.bin",
+      "/xte-link/usb-test-20261019/fast-1048589-1.bin",
+      "/xte-link/usb-test-20261019/fast-1048589-2.bin",
+      "/xte-link/usb-test-20261019/fast-4194333-0.bin",
+      "/xte-link/usb-test-20261019/legacy-65539.bin",
+      "/xte-link/usb-test-20261019/legacy-1048589.bin",
+      "/xte-link/usb-test-20261019/final-65539.bin",
+      "/xte-link/usb-test-20261019/final-1048589.bin",
+      "/xte-link/usb-test-20261019/final-4194333.bin",
+      "/xte-link/usb-test-20261019-faults/fault-drop-header-ack.bin",
+      "/xte-link/usb-test-20261019-faults/boundary-1.bin",
+      "/xte-link/usb-test-20261019-faults/fault-crc.bin",
+      "/xte-link/usb-test-20261019-faults/fault-drop-data255-ack.bin",
+      "/xte-link/usb-test-20261019-faults/fault-drop-data0-ack.bin",
+      "/xte-link/usb-test-20261019-faults/fault-drop-trailer-ack.bin",
+      "/xte-link/usb-test-20261019-faults/after-faults.bin",
+      "/xte-link/usb-test-20261019-faults/tray-picture.bmp",
+      "/xte-link/usb-test-20261018/trace-large-0-0.bin",
+      "/xte-link/usb-test-20261018/legacy-65539.bin",
+      "/xte-link/usb-test-20261018/trace-0-0.bin",
+      "/xte-link/usb-test-20261018/trace-0-1.bin",
+      "/xte-link/usb-test-20261018/trace-0-2.bin",
+      "/xte-link/usb-test-20261018/trace-1-0.bin",
+      "/xte-link/usb-test-20261018/trace-1-1.bin",
+      "/xte-link/usb-test-20261018/trace-1-2.bin",
+      "/xte-link/usb-test-20261018/trace-20261019.bin",
+      "/xte-link/usb-test-20261018/ymodem-65539.bin",
+      "/xte-link/usb-test-20261018/fixed-20261019-65539.bin",
+      "/xte-link/usb-test-20261018/fixed-20261019-1048589.bin",
+      "/xte-link/usb-test-20261018/fixed-20261019-4194333.bin"
+    ],
+    "deleted_count": 41,
+    "test_directories_empty": true,
+    "root_listing_preserved": true,
+    "font_skin_ui_listings_preserved": true
+  },
+  "resolved_issues": [
+    "PC sender left post-EOT C unread and did not wait for final trailer ACK; wrapper completes handshake without premature retry.",
+    "HWCDC could stall a whole or partial JSON reply; public Serial wait/flush and read-only hello on stalled control requests recover TX without replaying commands."
+  ],
+  "limitations": [
+    "Validated on this ESP32-C3 and Windows native USB setup only.",
+    "Fast upload pauses UI/network polling; full transfer is retried after interruption, not resumed.",
+    "Fast size limit INT32_MAX; larger files use legacy 32-bit-size upload.",
+    "SD short/full-sink writes and USB TX failure injected in the actual C host receiver; real card was not filled or removed.",
+    "Cancellation and receive timeout tested; no physical unplug, power-loss, or TF-media endurance test.",
+    "YMODEM double-EOT incurs about 1 second from pinned PC library retry behavior.",
+    "Existing complete Flash backup is Pixel 3.0.12; original factory backup is unavailable."
+  ]
+}

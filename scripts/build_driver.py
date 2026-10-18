@@ -1,6 +1,8 @@
 """Build the Windows tray EXE and record its checksum and build dependencies."""
 
 from datetime import datetime, timedelta, timezone
+from importlib.metadata import distribution
+import argparse
 import hashlib
 from pathlib import Path
 import subprocess
@@ -11,9 +13,19 @@ def main():
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root))
     from pc_driver.tray import icon_image
+    from scripts.prepare_driver_payload import prepare
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--firmware", type=Path, default=root / "artifacts/firmware/installer-20261019")
+    parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--output", type=Path, help="new release directory; must not already exist")
+    args = parser.parse_args()
+    payload = prepare(root, args.firmware)
+    if args.prepare_only:
+        print(f"Prepared: {payload}")
+        return
 
     stamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d-%H%M%S")
-    output = root / "artifacts" / "pc-driver" / stamp
+    output = args.output.resolve() if args.output else root / "artifacts" / "pc-driver" / stamp
     output.mkdir(parents=True, exist_ok=False)
     work = root / "build" / "pc-driver"
     work.mkdir(parents=True, exist_ok=True)
@@ -25,6 +37,8 @@ def main():
         "--icon", str(icon), "--paths", str(root),
         "--hidden-import", "pystray._win32", "--hidden-import", "serial.urlhandler.protocol_loop",
         "--collect-submodules", "zeroconf",
+        "--collect-all", "esptool", "--hidden-import", "tools.misans.build_misans",
+        "--add-data", str(payload) + ";install_payload",
         "--distpath", str(output), "--workpath", str(work / "pyinstaller"),
         "--specpath", str(work), str(root / "pc_driver" / "tray.py"),
     ], cwd=root, check=True)
@@ -34,6 +48,9 @@ def main():
     frozen = subprocess.check_output([sys.executable, "-m", "pip", "freeze"], text=True)
     (output / "build-requirements.txt").write_text(frozen, encoding="utf-8")
     (output / "LICENSE-codex-mobile.txt").write_bytes((root / "pc_driver" / "LICENSE-codex-mobile").read_bytes())
+    ymodem = distribution("ymodem")
+    ymodem_license = next(path for path in ymodem.files if str(path).endswith("licenses/LICENSE"))
+    (output / "LICENSE-ymodem.txt").write_bytes(ymodem.locate_file(ymodem_license).read_bytes())
     (output / "使用说明.txt").write_text(
         "双击 XTE-Link.exe；程序在系统托盘运行，无需安装 Python。\n"
         "右键图标：连接方式、串口、设备、配置 WiFi、上传休眠图片、驱动设置、日志、退出。\n"
@@ -51,10 +68,16 @@ def main():
         "不会写 Verge 配置；代理守卫、自动检测或其他程序管理的代理拒绝修改。TUN 未作真实切换测试。\n"
         "订阅更新需完整 Verge 兼容补丁；未安装时仅浏览列表并明确提示，禁止用 provider 更新冒充。\n"
         "休眠图片通过 USB 上传到 TF 卡 /.sleep/；settings-center-20261018 固件可在设置中预览并选固定/随机/顺序。\n"
+        "usb-tf-20261019 或更新固件自动使用 YMODEM-1K 上传并完整回读 TF 校验；旧固件自动沿用原协议。\n"
+        "快速上传期间设备 UI 和网络轮询暂停，完成后恢复；CLI put --legacy 可手动回退。\n"
         "旧版 sleep-image-20261016 固件仍为随机显示，根目录 /sleep.bmp 优先。\n"
         "连接信息保存在用户目录 .xte-link/tray.json；日志在 .xte-link/driver.log。\n"
         "先关闭旧 Python 驱动或串口监视器，避免串口占用。\n"
         "重复双击仅保留一个托盘实例；程序不会设置开机自启。\n", encoding="utf-8")
+    # The authoritative installation guide and licenses also live inside the EXE.
+    import shutil
+    for name in ("使用说明.txt", "THIRD-PARTY-NOTICES.txt", "corresponding-source.zip", "manifest.json"):
+        shutil.copyfile(payload / name, output / name)
     print(f"Built: {exe}\nSHA-256: {checksum}")
 
 

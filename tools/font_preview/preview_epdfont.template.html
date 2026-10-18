@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>X4 原字库 · 字号与实物尺寸预览</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef0f2;color:#20252b;font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif}
+main{padding:24px;max-width:1800px;margin:auto}h1{font-size:24px;margin:0 0 4px}p{margin:0 0 16px;color:#58616b}
+.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:end;margin:16px 0}label{display:flex;flex-direction:column;gap:4px;font-size:13px}
+input,select,textarea,button{font:inherit;color:inherit;padding:7px 10px;border:1px solid #bcc4cc;border-radius:5px;background:white}
+button{padding:7px 16px}textarea{width:min(800px,100%);height:92px;display:block;resize:vertical}.ruler{height:12px;border:solid #20252b;border-width:0 1px 2px;margin:14px 0 5px}
+#dimensions,#notice{font-size:13px;color:#58616b;margin:8px 0}.screens{display:flex;flex-wrap:wrap;gap:24px;align-items:start;margin-top:24px}
+article{max-width:100%;overflow:auto}h2{margin:0;font-size:18px}.meta{font-size:13px;margin:0 0 8px;color:#58616b}
+canvas{display:block;border:1px solid #a5acb4;background:white}canvas.pixel{image-rendering:pixelated}.errors{color:#a12c22;font-size:13px;max-width:600px}
+details{margin-top:24px}summary{font-weight:600}details p{margin:8px 0}code{font-size:13px}
+@media(max-width:600px){main{padding:14px}.controls{gap:10px}}
+</style>
+<main>
+<h1>X4 原字库 · 字号对比</h1>
+<p>三个字号使用备份里的真实字形，打开即可显示。每块画布均按横向 800 × 480 排版。</p>
+<div class="controls">
+<label>显示尺寸<select id="mode"><option value="physical">接近屏幕实物尺寸</option><option value="native">原始像素 1:1</option><option value="zoom">像素放大 2倍</option></select></label>
+<label>显示器对角线（英寸）<input id="inches" type="number" min="5" max="100" step="0.1" value="27"></label>
+<label>分辨率<select id="resolution"><option value="2560,1440">2560 × 1440（2K）</option><option value="1920,1080">1920 × 1080</option><option value="3840,2160">3840 × 2160（4K）</option></select></label>
+<label>字形显示<select id="shade"><option value="mono">单色黑白（当前固件）</option><option value="gray">字库原始四级灰度</option></select></label>
+<label>测试内容<select id="layout"><option value="settings">设置列表示例</option><option value="text">自定义文字</option></select></label>
+</div>
+<div id="dimensions" aria-live="polite"></div>
+<div class="ruler" id="ruler" aria-label="50毫米校准线"></div>
+<div class="controls">
+<label>用尺量上方横线实际长度（毫米）<input id="measured" type="number" min="10" max="150" step="0.1" value="50"></label>
+<button id="calibrate" type="button">校准为 50 毫米</button><button id="reset" type="button">重置校准</button>
+</div>
+<p>实物尺寸估算已考虑浏览器缩放与 Windows 缩放。请在目标显示器上量线校准；切换显示器后重新校准。只模拟大小与排版，墨水屏对比度和刷新效果仍需真机确认。</p>
+<label for="sample">自定义测试文字（选择“自定义文字”后显示）</label>
+<textarea id="sample">设置界面 中文字库 测试
+状态 音量 确认 返回
+CPU 25.5% 内存 16 / 32 GiB
+中文标点：，。！？（）</textarea>
+<div id="notice" aria-live="polite"></div>
+<div class="screens" id="screens"></div>
+<details><summary>字库验证与尺寸依据</summary>
+<p>本页嵌入已验证的原字库 GB2312 范围及可用 ASCII 字形，不联网、不要求手动选择文件。缺失字符显示方框，并在画布下方提示。</p>
+<p>X4 按项目硬件契约的 4.26 英寸、800 × 480 计算，约 219 PPI；约 92.8 × 55.7 毫米。契约中的 217 PPI 为近似值，以尺量校准为准。27 英寸 2560 × 1440 为约 108.8 PPI。</p>
+<p>文件开头的 <code>EPDF + 6D 00 00 00</code> 中，<code>6D</code> 是 109 个字符区间的计数，不是“EPDFm”格式标记。这三份文件为 48 字节头、13 字节字形记录、2 bit 四级灰度位图。字号名不等于字形像素高，也不等于行距。</p>
+</details>
+</main>
+<script id="font-data" type="application/json">/* FONT_DATA */</script>
+<script>
+'use strict';
+const fontData=JSON.parse(document.getElementById('font-data').textContent);
+const $=id=>document.getElementById(id),fonts=[];
+let calibration=1;
+const X4_PPI=Math.hypot(800,480)/4.26;
+for(const f of fontData){
+  f.bytes=Uint8Array.from(atob(f.bitmap),c=>c.charCodeAt(0));
+  f.map=new Map(f.glyphs.map(g=>[g[0],g]));
+  const article=document.createElement('article');
+  const title=document.createElement('h2');title.textContent=f.name;
+  const meta=document.createElement('div');meta.className='meta';
+  const middle=f.map.get('中'.codePointAt(0));
+  meta.textContent=`“中”字形 ${middle[1]} × ${middle[2]} px · 字宽步进 ${middle[3]} px · 原行距 ${f.lineHeight} px`;
+  const canvas=document.createElement('canvas');canvas.width=800;canvas.height=480;
+  canvas.style.boxSizing='content-box';
+  canvas.setAttribute('role','img');canvas.setAttribute('aria-label',f.name+' 字库测试画面');
+  const errors=document.createElement('div');errors.className='errors';errors.setAttribute('aria-live','polite');
+  article.append(title,meta,canvas,errors);$('screens').append(article);
+  fonts.push({...f,canvas,errors});
+}
+function monitorPpi(){const [w,h]=$('resolution').value.split(',').map(Number);return Math.hypot(w,h)/Math.max(5,Number($('inches').value)||27)}
+function sizeScreens(){
+  const dpr=window.devicePixelRatio||1,ppi=monitorPpi(),mode=$('mode').value;
+  const ratio=mode==='physical'?ppi/X4_PPI*calibration:mode==='native'?1:2;
+  for(const f of fonts){f.canvas.style.width=800*ratio/dpr+'px';f.canvas.style.height=480*ratio/dpr+'px';f.canvas.classList.toggle('pixel',mode!=='physical')}
+  $('ruler').style.width=50/25.4*ppi*calibration/dpr+'px';
+  $('dimensions').textContent=`显示器 ${ppi.toFixed(1)} PPI · X4 约 ${X4_PPI.toFixed(1)} PPI · 实物估算 92.8 × 55.7 mm · 缩放系数 DPR ${dpr.toFixed(2)} · 尺量校准 ${calibration.toFixed(3)}`;
+}
+function drawText(f,ctx,str,x,baseline,missing,invert=false){
+  let cursor=x;
+  for(const ch of str){
+    const g=f.map.get(ch.codePointAt(0));
+    if(!g){missing.add(ch);ctx.strokeStyle=invert?'white':'black';ctx.strokeRect(cursor+2,baseline-f.ascender,24,28);cursor+=f.lineHeight;continue}
+    const [cp,w,h,adv,left,top,length,pos]=g;
+    for(let y=0;y<h;y++)for(let xx=0;xx<w;xx++){
+      const n=y*w+xx,b=f.bytes[pos+(n>>2)],level=(b>>(6-2*(n%4)))&3;
+      const ink=$('shade').value==='mono'?(level>=2?255:0):level*85;
+      if(ink){const value=invert?ink:255-ink;ctx.fillStyle=`rgb(${value},${value},${value})`;ctx.fillRect(cursor+left+xx,baseline-top+y,1,1)}
+    }
+    cursor+=adv;
+  }
+  return cursor;
+}
+function draw(){
+  sizeScreens();
+  for(const f of fonts){
+    const ctx=f.canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,800,480);
+    const missing=new Set();
+    drawText(f,ctx,'XTE-Link  字体测试',28,60,missing);
+    ctx.fillStyle='black';ctx.fillRect(28,80,744,2);
+    if($('layout').value==='settings'){
+      const rows=[['音量步长','5%'],['屏幕更新间隔','5 秒'],['启动页面','状态'],['设备信息','确认查看'],['恢复默认设置','确认']];
+      rows.forEach(([label,value],i)=>{
+        const baseline=135+i*58;
+        if(i===1){ctx.fillStyle='black';ctx.fillRect(28,baseline-f.ascender-5,744,f.lineHeight+12)}
+        drawText(f,ctx,label,44,baseline,missing,i===1);
+        drawText(f,ctx,value,540,baseline,missing,i===1);
+      });
+      ctx.fillStyle='black';ctx.fillRect(28,410,744,2);
+      drawText(f,ctx,'上下选择  确认进入  返回退出',28,465,missing);
+    }else{
+      let baseline=110,x=28,overflow=false;
+      for(const ch of $('sample').value){
+        const g=f.map.get(ch.codePointAt(0)),advance=g?g[3]:f.lineHeight;
+        if(ch==='\n'){x=28;baseline+=f.lineHeight+10;continue}
+        if(x+advance>772){x=28;baseline+=f.lineHeight+10}
+        if(baseline-f.descender>465){overflow=true;break}
+        x=drawText(f,ctx,ch,x,baseline,missing);
+      }
+      if(overflow)missing.add('（文字超出一屏）');
+    }
+    f.errors.textContent=missing.size?'缺字或超出画布：'+[...missing].join(' '):'';
+  }
+  $('notice').textContent=`已自动加载 ${fonts.length} 个原字库。GB2312 覆盖：`+fonts.map(f=>`${f.name} ${7445-f.gbMissing.length}/7445`).join('；');
+}
+for(const id of ['mode','inches','resolution','shade','layout'])$(id).addEventListener('change',draw);
+$('sample').addEventListener('input',()=>{if($('layout').value==='text')draw()});
+$('calibrate').addEventListener('click',()=>{const measured=Number($('measured').value);if(measured>=10&&measured<=150){calibration*=50/measured;$('measured').value=50;sizeScreens()}});
+$('reset').addEventListener('click',()=>{calibration=1;$('measured').value=50;sizeScreens()});
+window.addEventListener('resize',sizeScreens);
+draw();
+window.previewReady=true;
+</script>
+</html>

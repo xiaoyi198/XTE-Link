@@ -25,16 +25,27 @@ def archive_firmware(source, target, env):
         raise RuntimeError("Archived firmware SHA-256 mismatch")
     sources = sorted((root / "firmware/src").glob("*.cpp")) + sorted((root / "firmware/src").glob("*.h"))
     sources += [root / "platformio.ini", root / "scripts/archive_firmware.py"]
+    sources += [root / "scripts/apply_ymodem_patch.py", root / "patches/ymodem-stream.patch"]
+    sources += [root / "scripts/apply_sdk_patch.py", root / "patches/open-x4-sdk-sdcard-format.patch",
+                root / "patches/open-x4-sdk-sdcard-space.patch"]
+    build_flags = [str(flag) for flag in env.get("BUILD_FLAGS", [])]
+    if any("XTE_TF_BENCH" in flag for flag in build_flags):
+        sources.append(root / "firmware/tests/tf_benchmark.h")
     sdk_commit = subprocess.check_output(["git", "-C", str(root / "open-x4-sdk"), "rev-parse", "HEAD"], text=True).strip()
     sdk_changes = subprocess.check_output(["git", "-C", str(root / "open-x4-sdk"), "status", "--porcelain"], text=True).strip()
     manifest = {
         "created_shanghai": now.isoformat(timespec="microseconds"),
         "environment": env.subst("$PIOENV"),
+        "build_flags": build_flags,
         "image": destination.name,
         "bytes": len(data),
         "sha256": digest,
         "sdk_commit": sdk_commit,
         "sdk_local_changes": sdk_changes,
+        "ymodem_commit": subprocess.check_output(["git", "-C", str(root / "third_party/esp32-ymodem"), "rev-parse", "HEAD"], text=True).strip(),
+        "ymodem_sources": {str(path.relative_to(root).as_posix()): hashlib.sha256(path.read_bytes()).hexdigest()
+                           for path in sorted((root / "third_party/esp32-ymodem/components/ymodem").iterdir())
+                           if path.name in ("ymodem.c", "ymodem.h", "library.json")},
         "source_hashes": {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in sources},
         "scope": "application image; existing full Flash backups are retained separately",
     }

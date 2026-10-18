@@ -3,7 +3,11 @@
 #include <SDCardManager.h>
 #include <algorithm>
 #include <mbedtls/sha256.h>
+#include <ymodem.h>
 #include "protocol.h"
+#ifdef XTE_TF_BENCH
+#include "../tests/tf_benchmark.h"
+#endif
 
 namespace xte {
 // All calls run on the Arduino loop task, together with display SPI access.
@@ -12,11 +16,12 @@ class TfTransfer {
   static constexpr size_t CHUNK = 128;
   bool active() const { return mode != Mode::NONE; }
   void tick() {
+    if (mode == Mode::YMODEM) receiveYmodem();
     if (active() && millis() - touched >= 30000) abort();
   }
   void abort() {
     file.close();
-    if (mode == Mode::WRITE) SdMan.remove(temporary);
+    if (mode == Mode::WRITE || mode == Mode::YMODEM) SdMan.remove(temporary);
     if (hashReady) {
       mbedtls_sha256_free(&hash);
       hashReady = false;
@@ -55,18 +60,71 @@ class TfTransfer {
   }
 
  private:
-  enum class Mode { NONE, LIST, READ, WRITE };
+  enum class Mode { NONE, LIST, READ, WRITE, YMODEM };
   Mode mode = Mode::NONE;
   FsFile file;
   uint32_t touched = 0, offset = 0, total = 0;
   char target[97] = {}, temporary[110] = {}, expected[65] = {};
   mbedtls_sha256_context hash = {};
   bool hashReady = false;
+  bool fastUpload = false;
+  int binaryResult = 0;
+
+  size_t write(const uint8_t* data, size_t count) {
+    if (count > total - offset || file.write(data, count) != count) return 0;
+    mbedtls_sha256_update_ret(&hash, data, count);
+    offset += count;
+    return count;
+  }
+  static int usbRead(void*, uint8_t* data, unsigned count, unsigned timeout) {
+    unsigned done = 0;
+    const uint32_t started = millis();
+    while (done < count && millis() - started < timeout) {
+      const int available = Serial.available();
+      if (available > 0) done += Serial.read(data + done, std::min(count - done, static_cast<unsigned>(available)));
+      else delay(1);
+    }
+    return done;
+  }
+  static int usbWrite(void*, const uint8_t* data, unsigned count) {
+    // Arduino 2.0.17 HWCDC can queue without restarting TX after its SOF-based
+    // connection flag drops during a long SD operation. Let its own handshake
+    // settle before queuing, then flush through the public API.
+    const uint32_t started = millis();
+    while (!Serial && millis() - started < 100) delay(1);
+    if (!Serial) return 0;
+    const int written = Serial.write(data, count);
+    Serial.flush();
+    return written;
+  }
+  static int store(void* context, const uint8_t* data, unsigned count) {
+    return static_cast<TfTransfer*>(context)->write(data, count);
+  }
+  static int controlPending(void*) {
+    const uint32_t started = millis();
+    while (!Serial.available() && millis() - started < 1500) delay(1);
+    return !Serial.available() || Serial.peek() == '{';
+  }
+  void receiveYmodem() {
+    YmodemIO io{this, usbRead, usbWrite, store, controlPending, total};
+    binaryResult = Ymodem_Receive(&io);
+    touched = millis();
+    if (binaryResult >= 0 && static_cast<uint32_t>(binaryResult) == total && offset == total) {
+      mode = Mode::WRITE;
+    } else {
+      abort();
+      // Discard residual binary bytes before handing the line parser back USB.
+      const uint32_t started = millis();
+      while (millis() - started < 100) { while (Serial.available()) Serial.read(); delay(1); }
+    }
+  }
 
   static void reply(const JsonDocument& doc) {
-    Serial.print("XTE: tf ");
-    serializeJson(doc, Serial);
-    Serial.println();
+    // HWCDC flushes its FIFO for each write. Queue a whole response once.
+    char frame[2048] = "XTE: tf ";
+    const size_t size = serializeJson(doc, frame + 8, sizeof(frame) - 10);
+    frame[size + 8] = '\n';
+    usbWrite(nullptr, reinterpret_cast<const uint8_t*>(frame), size + 9);
   }
   static bool pathValid(JsonVariantConst value) {
     const char* path = value.as<const char*>();
@@ -114,11 +172,13 @@ class TfTransfer {
   }
 
   const char* execute(const char* op, JsonDocument& req, JsonDocument& res) {
-    if (!strcmp(op, "abort")) { abort(); return nullptr; }
+    if (!strcmp(op, "abort")) { abort(); fastUpload = false; binaryResult = 0; return nullptr; }
     if (!strcmp(op, "mount")) {
       if (active()) return "busy";
       res["ready"] = SdMan.begin();
       res["chunk"] = CHUNK;
+      res["upload"] = "ymodem1k";
+      res["install"] = 1;
       return SdMan.ready() ? nullptr : "no_card";
     }
     if (!strcmp(op, "format")) {
@@ -126,6 +186,20 @@ class TfTransfer {
       return SdMan.format() ? nullptr : "format_failed";
     }
     if (!SdMan.ready()) return "no_card";
+    if (!strcmp(op, "space")) {
+      if (active()) return "busy";
+      uint64_t freeBytes; uint32_t clusterBytes;
+      if (!SdMan.space(freeBytes, clusterBytes)) return "space_failed";
+      res["free"] = freeBytes;
+      res["cluster"] = clusterBytes;
+      return nullptr;
+    }
+#ifdef XTE_TF_BENCH
+    if (!strcmp(op, "benchmark")) {
+      if (active()) return "busy";
+      return tfBenchmark(res);
+    }
+#endif
     if (!strcmp(op, "write") || !strcmp(op, "read")) {
       const Mode required = !strcmp(op, "write") ? Mode::WRITE : Mode::READ;
       if (mode != required) return "no_session";
@@ -158,6 +232,7 @@ class TfTransfer {
       return nullptr;
     }
     if (!strcmp(op, "finish")) {
+      if (fastUpload && binaryResult < 0) { res["ymodem_error"] = binaryResult; return "ymodem_failed"; }
       if (mode != Mode::READ && mode != Mode::WRITE) return "no_session";
       if (offset != total) return "incomplete";
       char digest[65];
@@ -167,6 +242,24 @@ class TfTransfer {
         if (strcmp(digest, expected)) { abort(); return "hash_mismatch"; }
         if (!file.sync()) { abort(); return "sync_failed"; }
         file.close();
+        if (fastUpload) {
+          // Verify bytes reread through the SDK after sync, before publishing.
+          file = SdMan.open(temporary);
+          if (!file || file.fileSize() != total) { abort(); return "readback_failed"; }
+          startHash();
+          uint8_t buffer[1024];
+          while (offset < total) {
+            const size_t count = std::min(static_cast<uint32_t>(sizeof(buffer)), total - offset);
+            if (file.read(buffer, count) != static_cast<int>(count)) { abort(); return "readback_failed"; }
+            mbedtls_sha256_update_ret(&hash, buffer, count);
+            offset += count;
+            if ((offset & 0x7fff) == 0) delay(1);
+          }
+          finishHash(digest);
+          res["sd_sha256"] = digest;
+          file.close();
+          if (strcmp(digest, expected)) { abort(); return "readback_hash_mismatch"; }
+        }
         if (SdMan.exists(target) || !SdMan.rename(temporary, target)) { abort(); return "commit_failed"; }
       }
       file.close();
@@ -193,6 +286,47 @@ class TfTransfer {
     if (active()) return "busy";
     if (!pathValid(req["path"])) return "bad_path";
     const char* path = req["path"];
+    if (!strcmp(op, "stat")) {
+      if (!SdMan.exists(path)) { res["exists"] = false; return nullptr; }
+      file = SdMan.open(path);
+      if (!file) return "open_failed";
+      res["exists"] = true;
+      res["dir"] = file.isDirectory();
+      res["size"] = file.fileSize();
+      if (!file.isDirectory()) {
+        mbedtls_sha256_context digest;
+        mbedtls_sha256_init(&digest);
+        mbedtls_sha256_starts_ret(&digest, 0);
+        uint8_t buffer[1024];
+        uint64_t remaining = file.fileSize();
+        bool okay = true;
+        while (remaining) {
+          const size_t count = std::min(remaining, static_cast<uint64_t>(sizeof(buffer)));
+          if (file.read(buffer, count) != static_cast<int>(count)) { okay = false; break; }
+          mbedtls_sha256_update_ret(&digest, buffer, count);
+          remaining -= count;
+          delay(1);
+        }
+        uint8_t bytes[32]; char hexDigest[65];
+        mbedtls_sha256_finish_ret(&digest, bytes);
+        mbedtls_sha256_free(&digest);
+        file.close();
+        if (!okay) return "read_failed";
+        hex(bytes, sizeof(bytes), hexDigest);
+        res["sha256"] = hexDigest;
+      }
+      file.close();
+      return nullptr;
+    }
+    if (!strcmp(op, "rename")) {
+      if (!pathValid(req["to"])) return "bad_path";
+      const char* destination = req["to"];
+      if (SdMan.exists(destination)) return "exists";
+      FsFile entry = SdMan.open(path);
+      if (!entry || entry.isDirectory()) { entry.close(); return "not_file"; }
+      entry.close();
+      return SdMan.rename(path, destination) ? nullptr : "rename_failed";
+    }
     if (!strcmp(op, "mkdir")) return SdMan.ensureDirectoryExists(path) ? nullptr : "mkdir_failed";
     if (!strcmp(op, "remove")) {
       FsFile entry = SdMan.open(path);
@@ -209,6 +343,8 @@ class TfTransfer {
       }
       mode = listing ? Mode::LIST : Mode::READ;
       if (!listing) {
+        fastUpload = false;
+        binaryResult = 0;
         total = file.fileSize();
         startHash();
         res["size"] = total;
@@ -216,8 +352,12 @@ class TfTransfer {
       return nullptr;
     }
     if (!strcmp(op, "put")) {
+      const char* transport = req["transport"] | "legacy";
+      if (strcmp(transport, "legacy") && strcmp(transport, "ymodem1k")) return "bad_transport";
+      const bool fast = !strcmp(transport, "ymodem1k");
       if (strstr(path, ".xte-part")) return "reserved_path";
       if (!req["size"].is<uint32_t>()) return "bad_size";
+      if (fast && req["size"].as<uint32_t>() > INT32_MAX) return "bad_size";
       const char* digest = req["sha256"];
       if (!digest || strlen(digest) != 64 || req["sha256"].as<JsonString>().size() != 64) return "bad_hash";
       for (size_t i = 0; i < 64; ++i) if (nibble(digest[i]) < 0) return "bad_hash";
@@ -228,7 +368,10 @@ class TfTransfer {
       if (!file) return "temporary_exists_or_open_failed";
       strcpy(expected, digest);
       total = req["size"];
-      mode = Mode::WRITE;
+      mode = fast ? Mode::YMODEM : Mode::WRITE;
+      fastUpload = fast;
+      binaryResult = 0;
+      res["transport"] = transport;
       startHash();
       return nullptr;
     }

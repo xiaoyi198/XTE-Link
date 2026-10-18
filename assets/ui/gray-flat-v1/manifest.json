@@ -1,0 +1,565 @@
+{
+  "name": "XTE-Link gray-flat-v1",
+  "created": "2026-10-18",
+  "palette": [
+    0,
+    85,
+    170,
+    255
+  ],
+  "background": 255,
+  "dither": false,
+  "firmware_integrated": true,
+  "firmware_min_version": "gray-flat-ui-20261018",
+  "source": {
+    "repository": "https://github.com/phosphor-icons/core",
+    "version": "2.1.1",
+    "commit": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+    "license": "MIT"
+  },
+  "exporter": {
+    "sharp": "0.35.5"
+  },
+  "icons": [
+    {
+      "id": "computer",
+      "label": "电脑状态",
+      "upstream": "desktop",
+      "role": "menu",
+      "size": 64,
+      "weight": "duotone"
+    },
+    {
+      "id": "volume",
+      "label": "系统音量",
+      "upstream": "speaker-high",
+      "role": "menu",
+      "size": 64,
+      "weight": "duotone"
+    },
+    {
+      "id": "assistant",
+      "label": "助手控制",
+      "upstream": "robot",
+      "role": "menu",
+      "size": 64,
+      "weight": "duotone"
+    },
+    {
+      "id": "settings",
+      "label": "设置",
+      "upstream": "sliders-horizontal",
+      "role": "menu",
+      "size": 64,
+      "weight": "duotone"
+    },
+    {
+      "id": "shortcuts",
+      "label": "快捷功能",
+      "upstream": "lightning",
+      "role": "menu",
+      "size": 64,
+      "weight": "duotone"
+    },
+    {
+      "id": "clash",
+      "label": "Clash Verge",
+      "upstream": "tree-structure",
+      "role": "menu",
+      "size": 64,
+      "weight": "duotone"
+    },
+    {
+      "id": "note",
+      "label": "占位二",
+      "upstream": "note",
+      "role": "menu",
+      "size": 64,
+      "weight": "duotone"
+    },
+    {
+      "id": "add",
+      "label": "占位三",
+      "upstream": "plus-square",
+      "role": "menu",
+      "size": 64,
+      "weight": "duotone"
+    },
+    {
+      "id": "display",
+      "label": "显示与刷新",
+      "upstream": "monitor",
+      "role": "settings",
+      "size": 32,
+      "weight": "duotone"
+    },
+    {
+      "id": "gallery",
+      "label": "屏保图库",
+      "upstream": "images",
+      "role": "settings",
+      "size": 32,
+      "weight": "duotone"
+    },
+    {
+      "id": "startup",
+      "label": "启动与操作",
+      "upstream": "play-circle",
+      "role": "settings",
+      "size": 32,
+      "weight": "duotone"
+    },
+    {
+      "id": "connection",
+      "label": "连接与配对",
+      "upstream": "plugs-connected",
+      "role": "settings",
+      "size": 32,
+      "weight": "duotone"
+    },
+    {
+      "id": "reminder",
+      "label": "助手提醒",
+      "upstream": "bell",
+      "role": "settings",
+      "size": 32,
+      "weight": "duotone"
+    },
+    {
+      "id": "power",
+      "label": "设备与电源",
+      "upstream": "power",
+      "role": "settings",
+      "size": 32,
+      "weight": "duotone"
+    },
+    {
+      "id": "usb",
+      "label": "USB",
+      "upstream": "usb",
+      "role": "status",
+      "size": 24,
+      "weight": "bold"
+    },
+    {
+      "id": "wifi",
+      "label": "Wi-Fi",
+      "upstream": "wifi-high",
+      "role": "status",
+      "size": 24,
+      "weight": "bold"
+    },
+    {
+      "id": "offline",
+      "label": "离线",
+      "upstream": "wifi-slash",
+      "role": "status",
+      "size": 24,
+      "weight": "bold"
+    },
+    {
+      "id": "tf-card",
+      "label": "TF 卡",
+      "upstream": "sim-card",
+      "role": "status",
+      "size": 24,
+      "weight": "bold"
+    },
+    {
+      "id": "battery",
+      "label": "电池",
+      "upstream": "battery-high",
+      "role": "status",
+      "size": 24,
+      "weight": "bold"
+    },
+    {
+      "id": "external-power",
+      "label": "外部供电",
+      "upstream": "plug",
+      "role": "status",
+      "size": 24,
+      "weight": "bold"
+    },
+    {
+      "id": "up",
+      "label": "↑",
+      "upstream": "arrow-up",
+      "role": "keys",
+      "size": 16,
+      "weight": "bold"
+    },
+    {
+      "id": "down",
+      "label": "↓",
+      "upstream": "arrow-down",
+      "role": "keys",
+      "size": 16,
+      "weight": "bold"
+    },
+    {
+      "id": "left",
+      "label": "←",
+      "upstream": "arrow-left",
+      "role": "keys",
+      "size": 16,
+      "weight": "bold"
+    },
+    {
+      "id": "right",
+      "label": "→",
+      "upstream": "arrow-right",
+      "role": "keys",
+      "size": 16,
+      "weight": "bold"
+    },
+    {
+      "id": "confirm",
+      "label": "✓",
+      "upstream": "check",
+      "role": "keys",
+      "size": 16,
+      "weight": "bold"
+    },
+    {
+      "id": "back",
+      "label": "×",
+      "upstream": "x",
+      "role": "keys",
+      "size": 16,
+      "weight": "bold"
+    }
+  ],
+  "assets": [
+    {
+      "id": "add",
+      "size": 64,
+      "bpp": 4,
+      "png": "png/add-64.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/add-64.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/add-64.bmp",
+      "bytes": 2118,
+      "sha256": "db62459727b4a74f14eaab4141cf1b8bd0692f85ccdf133ac72263f74140c4c9",
+      "png_sha256": "d76b69abc8c290440ebe17ba84ac30d4ab3a9bf5b4cdced2e4cf6abe4acb2f70"
+    },
+    {
+      "id": "assistant",
+      "size": 64,
+      "bpp": 4,
+      "png": "png/assistant-64.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/assistant-64.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/assistant-64.bmp",
+      "bytes": 2118,
+      "sha256": "03bdc6544911e897476af6bad9a7366c7fb9775ecd2c315fd54af95e2754cd4c",
+      "png_sha256": "053e28d2065192f06007b37f7474980611c014b0296947b613adc1741fd42ac4"
+    },
+    {
+      "id": "back",
+      "size": 16,
+      "bpp": 1,
+      "png": "png/back-16.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/back-16.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/back-16.bmp",
+      "bytes": 126,
+      "sha256": "d0ccea1bdff7e4dccd90a1010ad9389162a5a01e0432cac3c5cfbd22bad50851",
+      "png_sha256": "0c87ba58ec4dc4488e9a7b119cc36b15aa140fca4ffc3a671a5b576c31a445b3"
+    },
+    {
+      "id": "battery",
+      "size": 24,
+      "bpp": 1,
+      "png": "png/battery-24.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/battery-24.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/battery-24.bmp",
+      "bytes": 158,
+      "sha256": "65ad7b1aa4b46e838006308967affeb6487bfe5fb8a91468eb315bbb9fd8142a",
+      "png_sha256": "7426b15077b6525eaa5315dfbc1a96ebd5456bb288ed9ec884cb026f959ab446"
+    },
+    {
+      "id": "clash",
+      "size": 64,
+      "bpp": 4,
+      "png": "png/clash-64.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/clash-64.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/clash-64.bmp",
+      "bytes": 2118,
+      "sha256": "e05a3de3cffd9f5474c10637f462edf39337b95c9dc2f960ebc30e75668b32f9",
+      "png_sha256": "7578fcd9a71b168f2f61cc404a3d79b3fae6eb8e0ecc521e167047480ac9d375"
+    },
+    {
+      "id": "computer",
+      "size": 64,
+      "bpp": 4,
+      "png": "png/computer-64.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/computer-64.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/computer-64.bmp",
+      "bytes": 2118,
+      "sha256": "7373610c0ef2693e0efd3d4fe479bb48911a3456d7987577acb8639865614b71",
+      "png_sha256": "c7a67b1416802ff5ed0441b94864ce5e9735b9dc756755932e20eb7b1e1b3350"
+    },
+    {
+      "id": "confirm",
+      "size": 16,
+      "bpp": 1,
+      "png": "png/confirm-16.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/confirm-16.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/confirm-16.bmp",
+      "bytes": 126,
+      "sha256": "98c5f750f73e63a3ef5fe969ecd18f62d27362da896d2add04a3334c2f246472",
+      "png_sha256": "a9ac8f4c147a094d4bb8d019e2d32b1448e54fbdb75386d3a713bfcf1e879fbd"
+    },
+    {
+      "id": "connection",
+      "size": 32,
+      "bpp": 4,
+      "png": "png/connection-32.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/connection-32.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/connection-32.bmp",
+      "bytes": 582,
+      "sha256": "b37ab766a7689603c216ac07a4023d8e1297ef9029724f8fc2a9dd0b4fb89ce7",
+      "png_sha256": "398f98299295f36b050af9cc4adbd4b97f57e30d22b5ce3e2dba71689f9c702c"
+    },
+    {
+      "id": "display",
+      "size": 32,
+      "bpp": 4,
+      "png": "png/display-32.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/display-32.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/display-32.bmp",
+      "bytes": 582,
+      "sha256": "66d7d99468bcbd91f2474e54644d85749feeee2a69b325ebe659aa82f5002beb",
+      "png_sha256": "0e4a85d5a6da3e858cd6eef1b3f03a2614c7ebb39a6477802fb97465a41ffc9a"
+    },
+    {
+      "id": "down",
+      "size": 16,
+      "bpp": 1,
+      "png": "png/down-16.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/down-16.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/down-16.bmp",
+      "bytes": 126,
+      "sha256": "0d7402c113c899a37908748a31bad1ba3fe7e1fb5d63ddbaebb1ce1c26869c7d",
+      "png_sha256": "31fa78213cf01d9a6cb37bb7521a62894430559abcff3a0ea29dc9348c06d28a"
+    },
+    {
+      "id": "external-power",
+      "size": 24,
+      "bpp": 1,
+      "png": "png/external-power-24.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/external-power-24.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/external-power-24.bmp",
+      "bytes": 158,
+      "sha256": "c7400c31a1ceaddb6405737106e6d4d11894ea544ffdab5a6982bc8f437420b3",
+      "png_sha256": "1597ebc06089b6c95182233cd1cb95b43194d063131a1d37905b957679994f6d"
+    },
+    {
+      "id": "gallery",
+      "size": 32,
+      "bpp": 4,
+      "png": "png/gallery-32.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/gallery-32.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/gallery-32.bmp",
+      "bytes": 582,
+      "sha256": "7adac5b10b48a46a1342a3df38379d8825358a2e505f513084f43770bd1eccb0",
+      "png_sha256": "7c25fdf9ef935ce237f0d0ef01fe154118889b51659c0ed86b27252abda59b84"
+    },
+    {
+      "id": "left",
+      "size": 16,
+      "bpp": 1,
+      "png": "png/left-16.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/left-16.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/left-16.bmp",
+      "bytes": 126,
+      "sha256": "85c00423f0420a2d840fb909cc6e2f151e06a221868b9d2602ce43b3b0a5a7b1",
+      "png_sha256": "c2de5edfdbdfc7beb5efdf499d464255c1272d22ddd656649a0bd5b29112f58d"
+    },
+    {
+      "id": "logo",
+      "size": 128,
+      "bpp": 4,
+      "png": "png/logo-128.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/logo-128.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/logo-128.bmp",
+      "bytes": 8262,
+      "sha256": "2b25e10668474fe2e629bc2efbee2c79dce2bf6b4fa799b7a0b292b3711a7ac8",
+      "png_sha256": "9f32fef56998ecb6a8bc24031d1b9dd4f4ad0bac683f155c851afbc03be167d3"
+    },
+    {
+      "id": "logo",
+      "size": 64,
+      "bpp": 4,
+      "png": "png/logo-64.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/logo-64.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/logo-64.bmp",
+      "bytes": 2118,
+      "sha256": "238706eb096b03d017d0e655b36eac6323dc1899438a6f09ac77b1c18e6c390f",
+      "png_sha256": "cebf2112f05c218dd044424eca3bc34ae0f94502df97a395e0043e8434831540"
+    },
+    {
+      "id": "logo",
+      "size": 32,
+      "bpp": 4,
+      "png": "png/logo-32.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/logo-32.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/logo-32.bmp",
+      "bytes": 582,
+      "sha256": "59d55b1a0155dad4852780cbe2b5943093063e8fe240932c52953df743a94ec6",
+      "png_sha256": "03ffcac7aa743e572ad76b103bfda043684ac9f8596804650f10154dcdddecfb"
+    },
+    {
+      "id": "logo",
+      "size": 24,
+      "bpp": 4,
+      "png": "png/logo-24.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/logo-24.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/logo-24.bmp",
+      "bytes": 358,
+      "sha256": "92e9fc7c87e275360165ce8d4be5dcd4f6e0e2eba7621ef28933d65c53f7ba2b",
+      "png_sha256": "05b16dc6feaf8a25186eb9f56e93ab745b5d933ffc53a7200aa94d9689b1cdea"
+    },
+    {
+      "id": "note",
+      "size": 64,
+      "bpp": 4,
+      "png": "png/note-64.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/note-64.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/note-64.bmp",
+      "bytes": 2118,
+      "sha256": "bdc6e1a269650f01b4dc693543dec5657c793a139b51118893bacf6840f68c63",
+      "png_sha256": "05d47a059b0ddb289e6838fb475b33358450bd61590f30b6a3e30288cef85855"
+    },
+    {
+      "id": "offline",
+      "size": 24,
+      "bpp": 1,
+      "png": "png/offline-24.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/offline-24.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/offline-24.bmp",
+      "bytes": 158,
+      "sha256": "233ce92b0cbeab1d14251d33e15875fdbcfbd8ae3aa04e129416e0ef81853389",
+      "png_sha256": "cf7e62edaf1fc4f0f3d40479a9b7bca838b0a585c55a16733f860b6d4cc89f24"
+    },
+    {
+      "id": "power",
+      "size": 32,
+      "bpp": 4,
+      "png": "png/power-32.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/power-32.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/power-32.bmp",
+      "bytes": 582,
+      "sha256": "b2367fc335b3e3de76a50d79d4afee3bb92644c3f4ec52753428f3bb97600b9b",
+      "png_sha256": "e789c79c7af4c7357f931c68779cd62a3529d3075cb1c943760cf88020857d6f"
+    },
+    {
+      "id": "reminder",
+      "size": 32,
+      "bpp": 4,
+      "png": "png/reminder-32.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/reminder-32.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/reminder-32.bmp",
+      "bytes": 582,
+      "sha256": "92065f265f00bbd372cfb8ae5c948aae498e1d27eb462a5624b274857dee652c",
+      "png_sha256": "1f87b811b5573e3c7e2f27f032acd04aa1bfa3ca27bc482e085ab2eb4ae2cad1"
+    },
+    {
+      "id": "right",
+      "size": 16,
+      "bpp": 1,
+      "png": "png/right-16.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/right-16.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/right-16.bmp",
+      "bytes": 126,
+      "sha256": "557af4d361c70fcfd046a3b873935d6e00c25816572214838e502d1cdfa3f64c",
+      "png_sha256": "ba3ed8fb55eed10ad89a6ac38fe963f77af9da986402271438ee5eced1262f95"
+    },
+    {
+      "id": "settings",
+      "size": 64,
+      "bpp": 4,
+      "png": "png/settings-64.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/settings-64.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/settings-64.bmp",
+      "bytes": 2118,
+      "sha256": "eb338ae9ee730f0930619c3f68e678ddb5f431209f225ccb80132b10fa25fa9b",
+      "png_sha256": "294e6daa64223329a9b3c5598e741d5141fb69af8c00545d6ea94a1ba86b396a"
+    },
+    {
+      "id": "shortcuts",
+      "size": 64,
+      "bpp": 4,
+      "png": "png/shortcuts-64.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/shortcuts-64.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/shortcuts-64.bmp",
+      "bytes": 2118,
+      "sha256": "1310f6fb40f172b48962a3483ca55bfc606f50bdeece067d2af745d586d188db",
+      "png_sha256": "4f0e1b44b87db08bd9d40bf5b66800f14ab53169c02ee9302c57307f8e267ef9"
+    },
+    {
+      "id": "startup",
+      "size": 32,
+      "bpp": 4,
+      "png": "png/startup-32.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/startup-32.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/startup-32.bmp",
+      "bytes": 582,
+      "sha256": "281bc8e59ca424da947109b8338650522511285f0e5b6bf8472db97c0f204856",
+      "png_sha256": "86d19f56b3ae4d358351db6e7f3e0f432de5335b0752816ece7f12a5ee43ae3a"
+    },
+    {
+      "id": "tf-card",
+      "size": 24,
+      "bpp": 1,
+      "png": "png/tf-card-24.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/tf-card-24.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/tf-card-24.bmp",
+      "bytes": 158,
+      "sha256": "6bef056d99d1ecb39be975c9c1e569a1cb9dd7fb079dcd5cb96d0680c9bbd6b6",
+      "png_sha256": "7d4184a4d750157cae3c6ebb89774440d68de323993a1c125840de13d6d4c351"
+    },
+    {
+      "id": "up",
+      "size": 16,
+      "bpp": 1,
+      "png": "png/up-16.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/up-16.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/up-16.bmp",
+      "bytes": 126,
+      "sha256": "9cc5830c4540394963ca4a29e6449a7de728c2454ca92d11281217a99caa5f4e",
+      "png_sha256": "7a73a9f197b790e5428a37afd9cb0d55e2cd0b57ddacd85a53f1157d9e32c616"
+    },
+    {
+      "id": "usb",
+      "size": 24,
+      "bpp": 1,
+      "png": "png/usb-24.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/usb-24.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/usb-24.bmp",
+      "bytes": 158,
+      "sha256": "581212809394cedfb4bfda0276584c8c311e1318c3d3477e2c23cb155d5aac17",
+      "png_sha256": "632606de21bb40bd4fbb669e36bb13b7d9b4b10daaa23574c49e6ce1d797f54d"
+    },
+    {
+      "id": "volume",
+      "size": 64,
+      "bpp": 4,
+      "png": "png/volume-64.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/volume-64.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/volume-64.bmp",
+      "bytes": 2118,
+      "sha256": "d6fece75f3de20a708181b8e391fc182d2c9581bddfee1b0b377984f38ee3271",
+      "png_sha256": "002b74cf1b7a3fbd47a4f0416c2305027a288699bcb5da93559b2029297b83a7"
+    },
+    {
+      "id": "wifi",
+      "size": 24,
+      "bpp": 1,
+      "png": "png/wifi-24.png",
+      "bmp": "tf/xte-link/ui/gray-flat-v1/wifi-24.bmp",
+      "tf_path": "/xte-link/ui/gray-flat-v1/wifi-24.bmp",
+      "bytes": 158,
+      "sha256": "f643a4b6a7c8a149f35de3ef8bb6dd95506cd16d03db6a1e0143919ce361116d",
+      "png_sha256": "b81e4a35234dbeaa8adff3c9dd997fb8af0a6b6c086ebb2eba2003718d231459"
+    }
+  ]
+}

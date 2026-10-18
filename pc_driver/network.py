@@ -13,6 +13,7 @@ import socket
 import struct
 import threading
 import time
+import tempfile
 
 from serial.tools import list_ports
 from .protocol import MAX_PAYLOAD_BYTES
@@ -428,8 +429,13 @@ class Session:
             for entry in list(client.list(SLEEP_FOLDER)):
                 if not entry["dir"] and entry["name"].lower().endswith(".bmp"):
                     client.request("remove", path=f"{SLEEP_FOLDER}/{entry['name']}")
-        for remote, data in images:
-            client.upload_bytes(data, remote)
+        # The upstream YMODEM sender accepts file paths. Only converted picture
+        # bytes use this temporary file; WiFi provisioning stays in memory.
+        with tempfile.TemporaryDirectory(prefix="xte-link-images-") as directory:
+            local = Path(directory) / "sleep.bmp"
+            for remote, data in images:
+                local.write_bytes(data)
+                client.upload(local, remote)
         self.hello_at = 0
 
     def close(self):
