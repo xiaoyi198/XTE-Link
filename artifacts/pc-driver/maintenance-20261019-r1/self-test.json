@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "frozen": true,
+  "version": "maintenance-20261019",
+  "assets": 32,
+  "esptool": "4.9.0",
+  "fonttools": "4.60.1",
+  "freetype": "2.14.3"
+}

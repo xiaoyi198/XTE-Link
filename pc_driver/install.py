@@ -45,6 +45,7 @@ def prepare_fonts(root, bundle, report, check_cancel, source_zip=None):
     from tools.misans import build_misans as converter
     from fontTools.ttLib import TTFont
 
+    check_cancel()
     reference = json.loads((bundle.path / "font-reference.json").read_text(encoding="utf-8"))
     folder = Path(root) / "cache" / "misans-4.009-medium-v1"
     files = reference["files"]
@@ -61,10 +62,23 @@ def prepare_fonts(root, bundle, report, check_cancel, source_zip=None):
         part = source.with_suffix(".zip.part")
         report("从小米官方下载字体包（约 228 MB）……", 0)
         try:
+            check_cancel()
+            deadline = time.monotonic() + 15 * 60
             with urllib.request.urlopen(converter.URL, timeout=30) as response, part.open("wb") as output:
                 done = 0
-                while data := response.read(1024 * 1024):
+                # read1 returns after one network read rather than waiting for a
+                # whole large buffer on a slowly progressing connection.
+                read = getattr(response, "read1", response.read)
+                while True:
                     check_cancel()
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("官方字体包下载超过 15 分钟，未发布缓存；请重试或导入本地字体包。")
+                    data = read(64 * 1024)
+                    check_cancel()
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("官方字体包下载超过 15 分钟，未发布缓存；请重试或导入本地字体包。")
+                    if not data:
+                        break
                     output.write(data)
                     done += len(data)
                     if done > reference["source_zip_bytes"]:
@@ -73,6 +87,7 @@ def prepare_fonts(root, bundle, report, check_cancel, source_zip=None):
                            done / reference["source_zip_bytes"])
             if part.stat().st_size != reference["source_zip_bytes"] or sha256(part) != converter.ZIP_SHA:
                 raise ValueError("官方字体包 SHA-256 不匹配，未使用下载内容。")
+            check_cancel()
             part.replace(source)
         finally:
             if part.exists():
@@ -99,6 +114,7 @@ def prepare_fonts(root, bundle, report, check_cancel, source_zip=None):
         expected = next(f for f in files if f["pixel_size"] == size)
         if info["bytes"] != expected["bytes"] or info["sha256"] != expected["sha256"]:
             raise ValueError("生成的字库与已验证版本不同，未写入设备。请检查内置栅格化运行库。")
+    check_cancel()
     (staging / "manifest.json").write_text(json.dumps(reference, ensure_ascii=False, indent=2), encoding="utf-8")
     if folder.exists():
         folder.rename(folder.with_name(folder.name + "-previous-" + stamp))
@@ -116,8 +132,13 @@ def install_file(client, local, expected, report, check_cancel):
     target = remote_path(expected["tf_path"])
     candidate, backup = target + ".xte-next", target + ".xte-old"
     remote_path(candidate + ".xte-part")
+    switching = False
     def stat(path):
+        if not switching:
+            check_cancel()
         value = client.request("stat", path=path)
+        if not switching:
+            check_cancel()
         if type(value.get("exists")) is not bool:
             raise OSError("设备文件状态响应不完整。")
         if value["exists"] and (value.get("dir") is not False or type(value.get("size")) is not int
@@ -154,6 +175,7 @@ def install_file(client, local, expected, report, check_cancel):
         if not same_file(stat(candidate), expected):
             raise OSError(f"TF 候选文件回读校验失败：{target}")
     check_cancel()
+    switching = True
     if current["exists"]:
         client.request("rename", path=target, to=backup)
     # If power/USB is lost here, the next run restores backup before any upload.
@@ -178,11 +200,12 @@ def install_file(client, local, expected, report, check_cancel):
     return True
 
 
-def wait_device(port, expected_mac=None, expected_version=None, timeout=35):
+def wait_device(port, expected_mac=None, expected_version=None, timeout=35, check_cancel=lambda: None):
     from serial.tools import list_ports
     from .driver import open_serial
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        check_cancel()
         candidates = [p for p in list_ports.comports() if (p.vid, p.pid) == (0x303A, 0x1001)]
         if expected_mac:
             candidates = [p for p in candidates if (p.serial_number or "").replace(":", "").lower() == expected_mac]
@@ -199,6 +222,7 @@ def wait_device(port, expected_mac=None, expected_version=None, timeout=35):
             next_hello = 0
             attempt_deadline = min(deadline, time.monotonic() + 5)
             while time.monotonic() < attempt_deadline:
+                check_cancel()
                 if time.monotonic() >= next_hello:
                     connection.write(b'{"v":2,"cmd":"hello"}\n')
                     next_hello = time.monotonic() + .4
@@ -218,6 +242,10 @@ def wait_device(port, expected_mac=None, expected_version=None, timeout=35):
                         raise OSError("重启后的设备身份不一致。")
                     return connection, candidates[0].device
                 time.sleep(.01)
+        except InterruptedError:
+            if connection:
+                connection.close()
+            raise
         except (OSError, ValueError):
             if connection:
                 connection.close()
@@ -252,6 +280,7 @@ class Installer:
     def run(self, action):
         if action not in ("all", "firmware", "fonts", "assets"):
             raise ValueError("未知安装操作。")
+        self.check_cancel()
         bundle = self.bundle or Bundle()
         selected_mac = device_identity(self.port)
         self.report(f"配套固件：{bundle.manifest['version']}", 0)
@@ -266,35 +295,50 @@ class Installer:
             if action in ("all", "firmware"):
                 mac = flash_device(self.port, bundle, self.root, self.report, selected_mac, self.check_cancel)
             self.check_cancel()
-            connection, port = wait_device(self.port, mac, bundle.manifest["version"] if action in ("all", "firmware") else None)
+            connection, port = wait_device(self.port, mac, bundle.manifest["version"] if action in ("all", "firmware") else None,
+                                           check_cancel=self.check_cancel)
+            client = None
             try:
                 if files:
-                    client = TfClient(connection, timeout=60)
+                    client = TfClient(connection, timeout=60, check_cancel=self.check_cancel)
                     client.request("abort")
+                    self.check_cancel()
                     client.mount()
+                    self.check_cancel()
                     if client.install_version != 1:
                         raise ValueError("请先点击“一键刷入配套固件”，再安装字库或素材。")
                     self.report("检查 TF 卡可用空间……", 0)
                     space = client.request("space")
+                    self.check_cancel()
                     cluster = space.get("cluster")
                     if type(cluster) is not int or cluster <= 0 or type(space.get("free")) is not int:
                         raise OSError("无法确认 TF 卡剩余空间。")
                     required = sum(math.ceil(item["bytes"] / cluster) * cluster for _, item in files) + 8 * cluster
                     if space["free"] < required:
                         # Matching files do not need room for another copy.
-                        missing = [item for _, item in files if not same_file(client.request("stat", path=item["tf_path"]), item)]
-                        required = (8 * cluster if missing else 0) + sum(math.ceil(item["bytes"] / cluster) * cluster
-                            for item in missing if not same_file(client.request("stat", path=item["tf_path"] + ".xte-next"), item))
+                        missing = []
+                        for _, item in files:
+                            self.check_cancel()
+                            if not same_file(client.request("stat", path=item["tf_path"]), item):
+                                missing.append(item)
+                        required = 8 * cluster if missing else 0
+                        for item in missing:
+                            self.check_cancel()
+                            if not same_file(client.request("stat", path=item["tf_path"] + ".xte-next"), item):
+                                required += math.ceil(item["bytes"] / cluster) * cluster
                     if space["free"] < required:
                         raise OSError(f"TF 卡空间不足：需要约 {required / 1e6:.1f} MB，可用 {space['free'] / 1e6:.1f} MB。")
                     for index, (local, item) in enumerate(files, 1):
+                        self.check_cancel()
                         self.report(f"资源 {index}/{len(files)}：{item['tf_path']}", 0)
                         install_file(client, local, item, self.report, self.check_cancel)
+                    self.check_cancel()
                     connection.write(b'{"v":2,"cmd":"resources_ready"}\n')
                     self.report("资源已完整校验，正在刷新设备……", 1)
                     deadline = time.monotonic() + 8
                     reply = bytearray()
                     while b"XTE: resources ready" not in reply and time.monotonic() < deadline:
+                        self.check_cancel()
                         reply.extend(connection.read(4096))
                         if len(reply) > 8192:
                             del reply[:-4096]
@@ -302,6 +346,14 @@ class Installer:
                     if b"XTE: resources ready" not in reply:
                         raise TimeoutError("文件已校验，但未收到设备刷新确认；可以重新执行以核对状态。")
                 self.report(f"完成：设备 {port}，驱动通信即将恢复。", 1)
+            except Exception:
+                if client is not None:
+                    try:
+                        client.timeout = 3
+                        client.request("abort")
+                    except (OSError, ValueError):
+                        logging.warning("TF cleanup failed; the next installation will inspect the saved files")
+                raise
             finally:
                 connection.close()
 

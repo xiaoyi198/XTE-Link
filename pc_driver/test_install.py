@@ -10,12 +10,13 @@ from types import SimpleNamespace
 import tempfile
 import threading
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 import zlib
 import struct
 
 from pc_driver.flash import inspect_layout, partition_parser, flash_device, FLASH_SIZE
-from pc_driver.install import Bundle, Installer, install_file, prepare_fonts, same_file
+from pc_driver.install import Bundle, Installer, install_file, prepare_fonts, same_file, wait_device
+from pc_driver.install_window import build_window
 from pc_driver.tray import TrayApp
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -132,6 +133,34 @@ class InstallTests(unittest.TestCase):
             self.install(card, cancel)
         self.assertEqual(card.files, {self.target: b"old"})
 
+    def test_cancel_after_upload_preserves_original_and_verified_candidate(self):
+        card = Card({self.target: b"old"})
+        def cancel():
+            if card.uploads:
+                raise InterruptedError()
+        with self.assertRaises(InterruptedError):
+            self.install(card, cancel)
+        self.assertEqual(card.files, {self.target: b"old", self.target + ".xte-next": b"new font"})
+        self.install(card)
+        self.assertEqual(card.uploads, 1)
+
+    def test_cancel_during_final_rename_completes_transaction_before_stopping(self):
+        card = Card({self.target: b"old"})
+        request = card.request
+        cancel = threading.Event()
+        def switch(op, **fields):
+            result = request(op, **fields)
+            if op == "rename":
+                cancel.set()
+            return result
+        card.request = switch
+        def check():
+            if cancel.is_set():
+                raise InterruptedError()
+        self.assertTrue(self.install(card, check))
+        self.assertTrue(cancel.is_set())
+        self.assertEqual(card.files, {self.target: b"new font"})
+
     def test_conflicting_backup_is_preserved(self):
         card = Card({self.target: b"unknown", self.target + ".xte-old": b"precious"})
         with self.assertRaisesRegex(OSError, "冲突"):
@@ -212,6 +241,57 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(len(full_reads), 1)
         self.assertEqual(len(list((self.root / "user/backups/010203040506").glob("current-full-*.bin"))), 1)
 
+    def test_cancel_during_prewrite_backup_does_not_publish_or_flash(self):
+        system, parser, profile = fixture_layout()
+        profile["recovery_md5"] = hashlib.md5(b"\x00" * 0x640000).hexdigest()
+        shutil.copyfile(PARSER, self.root / "gen_esp32part.py")
+        image = self.root / "app.bin"
+        image.write_bytes(b"application")
+        bundle = SimpleNamespace(path=self.root, file=lambda _: image,
+                                 manifest={"firmware": {}, "devices": [profile]})
+        for stage in ("full", "app1"):
+            with self.subTest(stage=stage):
+                user = self.root / stage
+                device = user / "backups/010203040506"
+                device.mkdir(parents=True)
+                if stage == "app1":
+                    saved = device / "existing-full.bin"
+                    with saved.open("wb") as output:
+                        output.write(system)
+                        output.seek(FLASH_SIZE - 1)
+                        output.write(b"\x00")
+                    (device / "full-flash.json").write_text(json.dumps({"device": "010203040506",
+                        "path": str(saved), "sha256": hashlib.sha256(saved.read_bytes()).hexdigest()}))
+                cancel = threading.Event()
+                esp = Mock(CHIP_NAME="ESP32-C3", secure_download_mode=False)
+                esp.run_stub.return_value = esp
+                esp.get_secure_boot_enabled.return_value = False
+                esp.get_flash_encryption_enabled.return_value = False
+                esp.read_mac.return_value = (1, 2, 3, 4, 5, 6)
+                esp.flash_md5sum.return_value = profile["recovery_md5"]
+                def read(offset, size, *args):
+                    if size == 0x10000:
+                        return system
+                    self.assertEqual((offset, size), (0, FLASH_SIZE) if stage == "full" else (0x650000, 0x640000))
+                    cancel.set()
+                    args[0](4096, size)
+                    self.fail("backup cancellation must unwind the read")
+                esp.read_flash.side_effect = read
+                def check():
+                    if cancel.is_set():
+                        raise InterruptedError("stop backup")
+                with patch("esptool.detect_chip", return_value=esp), \
+                     patch("esptool.cmds.detect_flash_size", return_value="16MB"), \
+                     patch("pc_driver.flash.validate_image"), patch("esptool.main") as write:
+                    with self.assertRaisesRegex(InterruptedError, "stop backup"):
+                        flash_device("COM3", bundle, user, Mock(), check_cancel=check)
+                write.assert_not_called()
+                self.assertFalse(list(device.glob("current-full-*.bin")))
+                self.assertFalse(list(device.glob("app1-*.bin")))
+                self.assertFalse(list(device.glob("update-*.json")))
+                self.assertEqual((device / "full-flash.json").exists(), stage == "app1")
+                esp._port.close.assert_called_once()
+
     def test_download_failure_precedes_device_access(self):
         bundle = SimpleNamespace(manifest={"version": "test"})
         exclusive = Mock()
@@ -229,6 +309,36 @@ class InstallTests(unittest.TestCase):
             "files": [{"file": "missing", "bytes": 1, "sha256": "0" * 64}]}))
         with patch("pc_driver.install.urllib.request.urlopen", return_value=BytesIO(b"abc")):
             with self.assertRaisesRegex(ValueError, "SHA-256"):
+                prepare_fonts(self.root, SimpleNamespace(path=self.root), lambda *args: None, lambda: None)
+        self.assertFalse((self.root / "cache/MiSans.zip").exists())
+        self.assertFalse((self.root / "cache/MiSans.zip.part").exists())
+
+    def test_cancel_slow_download_does_not_publish_cache_or_touch_device(self):
+        (self.root / "font-reference.json").write_text(json.dumps({"source_zip_bytes": 3,
+            "files": [{"file": "missing", "bytes": 1, "sha256": "0" * 64}]}))
+        cancel = threading.Event()
+        response = MagicMock()
+        response.__enter__.return_value = response
+        def read(_):
+            cancel.set()
+            return b"abc"
+        response.read1.side_effect = read
+        def check():
+            if cancel.is_set():
+                raise InterruptedError()
+        with patch("pc_driver.install.urllib.request.urlopen", return_value=response) as download:
+            with self.assertRaises(InterruptedError):
+                prepare_fonts(self.root, SimpleNamespace(path=self.root), lambda *args: None, check)
+        self.assertEqual(download.call_args.kwargs["timeout"], 30)
+        self.assertFalse((self.root / "cache/MiSans.zip").exists())
+        self.assertFalse((self.root / "cache/MiSans.zip.part").exists())
+
+    def test_download_total_deadline_discards_partial_archive(self):
+        (self.root / "font-reference.json").write_text(json.dumps({"source_zip_bytes": 3,
+            "files": [{"file": "missing", "bytes": 1, "sha256": "0" * 64}]}))
+        with patch("pc_driver.install.urllib.request.urlopen", return_value=BytesIO(b"abc")), \
+             patch("pc_driver.install.time.monotonic", side_effect=[0, 1, 901]):
+            with self.assertRaisesRegex(TimeoutError, "15 分钟"):
                 prepare_fonts(self.root, SimpleNamespace(path=self.root), lambda *args: None, lambda: None)
         self.assertFalse((self.root / "cache/MiSans.zip").exists())
         self.assertFalse((self.root / "cache/MiSans.zip.part").exists())
@@ -269,6 +379,113 @@ class InstallTests(unittest.TestCase):
                     self.assertTrue(app.session_stop.is_set())
                     raise OSError()
             self.assertFalse(app.maintenance.is_set())
+
+    def test_wait_device_cancel_closes_open_port_without_retry(self):
+        cancel = threading.Event()
+        connection = Mock()
+        connection.read.side_effect = lambda _: cancel.set() or b""
+        port = SimpleNamespace(device="COM3", vid=0x303A, pid=0x1001)
+        def check():
+            if cancel.is_set():
+                raise InterruptedError()
+        with patch("serial.tools.list_ports.comports", return_value=[port]), \
+             patch("pc_driver.driver.open_serial", return_value=connection) as opened, \
+             patch("pc_driver.install.time.sleep"):
+            with self.assertRaises(InterruptedError):
+                wait_device("COM3", check_cancel=check)
+        connection.close.assert_called_once()
+        opened.assert_called_once()
+
+    def test_cancel_waiting_for_driver_releases_maintenance_without_device_work(self):
+        with patch("pc_driver.tray.pystray.Icon"):
+            app = TrayApp(self.root)
+        app.driver_idle = Mock()
+        app.driver_idle.wait.return_value = False
+        app.installer_cancel.set()
+        with self.assertRaises(InterruptedError):
+            with app.exclusive_device():
+                self.fail("cancelled maintenance must not start")
+        app.driver_idle.wait.assert_called_once_with(.1)
+        self.assertFalse(app.maintenance.is_set())
+
+    def test_wait_device_discovery_cancel_does_not_wait_entire_deadline(self):
+        calls = 0
+        def check():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise InterruptedError()
+        with patch("serial.tools.list_ports.comports", return_value=[]) as ports, \
+             patch("pc_driver.install.time.sleep") as sleep:
+            with self.assertRaises(InterruptedError):
+                wait_device("COM3", check_cancel=check)
+        ports.assert_called_once()
+        sleep.assert_called_once_with(.2)
+
+    def test_cancel_after_flash_validation_does_not_start_next_stage(self):
+        cancel = threading.Event()
+        bundle = SimpleNamespace(manifest={"version": "test"})
+        installer = Installer(self.root, "COM3", Mock(), cancel, nullcontext, bundle=bundle)
+        with patch("pc_driver.install.device_identity", return_value="010203040506"), \
+             patch("pc_driver.install.flash_device", side_effect=lambda *args: cancel.set()), \
+             patch("pc_driver.install.wait_device") as wait:
+            with self.assertRaises(InterruptedError):
+                installer.run("firmware")
+        wait.assert_not_called()
+
+    def test_failed_tf_stage_aborts_and_releases_serial_and_maintenance(self):
+        connection = Mock()
+        card = Mock(install_version=1)
+        card.request.side_effect = [None, OSError("card disconnected"), None]
+        bundle = SimpleNamespace(manifest={"version": "test", "assets": [self.expected]}, file=lambda _: self.local)
+        with patch("pc_driver.tray.pystray.Icon"):
+            app = TrayApp(self.root)
+        installer = Installer(self.root, "COM3", Mock(), app.installer_cancel, app.exclusive_device, bundle=bundle)
+        with patch("pc_driver.install.device_identity", return_value="010203040506"), \
+             patch("pc_driver.install.wait_device", return_value=(connection, "COM3")), \
+             patch("pc_driver.install.TfClient", return_value=card):
+            with self.assertRaisesRegex(OSError, "card disconnected"):
+                installer.run("assets")
+        self.assertEqual(card.request.call_args.args, ("abort",))
+        self.assertEqual(card.timeout, 3)
+        self.assertFalse(app.maintenance.is_set())
+        connection.close.assert_called_once()
+
+    def test_write_confirmation_cancel_does_not_start_worker_or_maintenance(self):
+        port = SimpleNamespace(device="COM3", description="X4", vid=0x303A, pid=0x1001,
+                               serial_number="010203040506")
+        for maintenance in (False, True):
+            with self.subTest(maintenance=maintenance), patch("pc_driver.tray.pystray.Icon"):
+                app = TrayApp(self.root)
+                app.exclusive_device = Mock()
+                window, tk, ttk, dialogs = (MagicMock() for _ in range(4))
+                dialogs.askokcancel.return_value = False
+                ttk.Combobox.return_value.get.return_value = "COM3 · X4"
+                commands = {}
+                def button(*args, **kwargs):
+                    commands[kwargs["text"]] = kwargs["command"]
+                    return MagicMock()
+                ttk.Button.side_effect = button
+                with patch("pc_driver.install_window.Bundle", return_value=SimpleNamespace(manifest={"version": "test"})), \
+                     patch("serial.tools.list_ports.comports", return_value=[port]), \
+                     patch("pc_driver.install_window.Installer") as installer, \
+                     patch("pc_driver.install_window.threading.Thread") as thread:
+                    build_window(app, window, tk, ttk, dialogs, maintenance=maintenance)
+                    commands["一键完整安装／更新"]()
+                    commands["刷入配套固件"]()
+                if maintenance:
+                    self.assertEqual(dialogs.askokcancel.call_count, 2)
+                    prompt = dialogs.askokcancel.call_args.args[1]
+                    self.assertIn("COM3", prompt)
+                    self.assertIn("060504030201", prompt)
+                    self.assertIn("app1", prompt)
+                    self.assertIn("完整 Flash", prompt)
+                else:
+                    dialogs.askokcancel.assert_not_called()
+                self.assertFalse(app.installer_running.is_set())
+                app.exclusive_device.assert_not_called()
+                installer.assert_not_called()
+                thread.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -73,7 +73,7 @@ uint8_t selectedGroup = 0;
 uint8_t selectedSetting = 0;
 uint8_t draftSetting = 0;
 const char* settingsMessage = nullptr;
-constexpr const char* FIRMWARE_VERSION = "installer-20261019";
+constexpr const char* FIRMWARE_VERSION = "maintenance-20261019";
 std::vector<String> gallery;
 uint16_t gallerySelection = 0;
 uint16_t fastRefreshes = 0;
@@ -576,7 +576,7 @@ void renderClashPage() {
     uiText(48, 300, "确认执行  返回取消", 704);
   } else if (clash.pending || !clash.complete) {
     uiText(48, 182, clash.message[0] ? clash.message : "确认刷新状态", 704);
-    if (!clash.pending) uiText(48, 270, "确认重试  返回上级", 704);
+    if (!clash.pending) uiText(48, 270, "确认刷新状态  返回上级", 704);
   } else {
     for (uint8_t i = 0; i < clash.count; ++i) {
       const int16_t y = 142 + i * 42;
@@ -628,7 +628,7 @@ void renderFrame(bool online) {
   if (appMenu) {
     uiText(28, 412, "左右翻页  上下选择  确认打开", 744, FontFace::Caption24);
   } else if (page == Page::CLASH) {
-    uiText(28, 412, clash.pending ? "正在读取  返回取消等待" :
+    uiText(28, 412, clash.pending ? "等待结果  返回菜单" :
                                "上下选择  左右翻页  确认进入", 744, FontFace::Caption24);
   } else if (page == Page::SETTINGS) {
     const char* hint = settingsMode == SettingsMode::HOME ? "上下选择  确认打开  返回菜单" :
@@ -880,9 +880,7 @@ void sendClashRequest(bool activate = false) {
   char message[256];
   const uint8_t index = clash.selected;
   const bool hasRevision = clash.complete && clash.revision[0];
-  const bool longRequest = activate && (clash.confirming || !strcmp(clash.view, "profiles"));
-  clash.begin(millis());
-  clash.longRequest = longRequest;
+  if (!clash.begin(millis(), activate && clash.selectionWrites())) return;
   snprintf(message, sizeof(message),
            "XTE: clash {\"id\":%lu,\"op\":\"%s\",\"view\":\"%s\",\"page\":%u,\"rev\":\"%s\",\"index\":%u}\n",
            static_cast<unsigned long>(clash.sequence), activate ? "activate" : "list",
@@ -895,8 +893,10 @@ void sendClashRequest(bool activate = false) {
 void handleClashButtons() {
   if (input.wasPressed(InputManager::BTN_BACK)) {
     if (clash.confirming) { clash.confirming = false; renderNow = true; return; }
-    clash.pending = false;
-    if (!strcmp(clash.view, "home")) { appMenu = true; halfRefresh = true; renderNow = true; return; }
+    // Leaving the wait screen cannot cancel an operation already sent to the PC.
+    if (clash.pending || !strcmp(clash.view, "home")) {
+      appMenu = true; halfRefresh = true; renderNow = true; return;
+    }
     strcpy(clash.view, !strcmp(clash.view, "nodes") ? "groups" : "home");
     clash.page = 0; sendClashRequest(); return;
   }
@@ -907,9 +907,7 @@ void handleClashButtons() {
   }
   if (input.wasPressed(InputManager::BTN_CONFIRM)) {
     if (!clash.complete || !clash.count) { sendClashRequest(); return; }
-    const bool writes = !strcmp(clash.view, "nodes") || !strcmp(clash.view, "profiles") ||
-                        (!strcmp(clash.view, "home") && (clash.selected == 2 || clash.selected == 3));
-    if (writes && clash.rows[clash.selected].enabled) { clash.confirming = true; renderNow = true; }
+    if (clash.selectionWrites() && clash.rows[clash.selected].enabled) { clash.confirming = true; renderNow = true; }
     else sendClashRequest(true);
   } else if (clash.complete && clash.count &&
              (input.wasPressed(InputManager::BTN_RIGHT) || input.wasPressed(InputManager::BTN_LEFT))) {
@@ -934,7 +932,13 @@ void openApp(Page next, bool remember = true) {
   halfRefresh = true;
   renderNow = true;
   if (next == Page::AGENTS) attentionQueued = false;
-  if (next == Page::CLASH) { strcpy(clash.view, "home"); clash.page = 0; sendClashRequest(); }
+  if (next == Page::CLASH) {
+    // Show an in-flight request or its unseen result before allowing a fresh read.
+    if (!clash.pending && !clash.unseenResult) {
+      strcpy(clash.view, "home"); clash.page = 0; sendClashRequest();
+    }
+    clash.unseenResult = false;
+  }
   if (remember && settings.startupMode == 2 && next != Page::SETTINGS && next != lastApp) {
     Preferences prefs;
     if (prefs.begin("xte-link", false)) {
@@ -1079,9 +1083,19 @@ void acceptStatus(xte::Status incoming) {
   if (settings.reminderMode == 2 && approvals > previousApprovals) attentionQueued = true;
   dirty = true;
   replyActive("XTE: accepted\n");
-  // A direct Clash startup can precede USB/LAN driver availability. Retry only
-  // its read request when fresh metrics establish the connection.
-  if (!wasConnected && !appMenu && page == Page::CLASH && !clash.confirming) sendClashRequest();
+  // A read may precede USB/LAN driver availability. On connection, supersede
+  // reads only; never replay a write or hide its result.
+  if (!wasConnected && !appMenu && page == Page::CLASH && !clash.confirming &&
+      !clash.writeRequest && !clash.complete && !clash.unseenResult) {
+    clash.pending = false;
+    sendClashRequest();
+  }
+}
+
+void expireClashRequest(uint32_t now) {
+  if (!clash.expire(now)) return;
+  if (!appMenu && page == Page::CLASH) renderNow = true;
+  else clash.unseenResult = true;
 }
 
 bool handlePush(char* line, size_t length) {
@@ -1091,9 +1105,12 @@ bool handlePush(char* line, size_t length) {
     lastContact = millis();
     replyActive("XTE: pong\n");
   } else if (doc["cmd"] == "clash") {
-    if (!appMenu && page == Page::CLASH && clash.accept(doc)) {
+    if (clash.accept(doc)) {
       lastContact = millis();
-      renderNow = !clash.pending;
+      if (!clash.pending) {
+        if (!appMenu && page == Page::CLASH) renderNow = true;
+        else clash.unseenResult = true;
+      }
       replyActive("XTE: clash_received\n");
     }
   } else if (doc["cmd"] == "agents") {
@@ -1337,12 +1354,7 @@ void loop() {
   if (millis() - batterySampledAt >= 30000) sampleBattery();
   if (millis() - usbPolledAt >= 200) pollUsb();
   const uint32_t now = millis();
-  if (!appMenu && page == Page::CLASH && clash.pending &&
-      now - clash.requestedAt >= (clash.longRequest ? 70000u : 10000u)) {
-    clash.pending = false; clash.complete = false;
-    strcpy(clash.message, clash.longRequest ? "结果待确认，请刷新" : "驱动未响应，请更新电脑驱动");
-    renderNow = true;
-  }
+  expireClashRequest(now);
   if (volumePending && now - volumeRequestedAt >= 2000) {
     volumePending = false;
     status.volume = confirmedVolume;

@@ -14,6 +14,7 @@ import ctypes
 import base64
 import hashlib
 import hmac
+import ipaddress
 import re
 import struct
 import threading
@@ -166,6 +167,10 @@ class AgentManager:
             return False
 
     def action(self, tool, request_id, action):
+        with self._lock:
+            return self._action(tool, request_id, action)
+
+    def _action(self, tool, request_id, action):
         if action not in ("approve", "reject"):
             return False
         if (tool, request_id) in self._handled:
@@ -175,11 +180,19 @@ class AgentManager:
             return False
         if tool == "codex":
             accepted = self._codex is not None and self._codex.decide(request_id, action)
-        elif tool == "dsh" and self._dsh is not None and self._dsh.decide(request_id, action):
-            accepted = True
+        elif tool == "dsh" and self._dsh is not None:
+            # A live adapter owns the request. A rejected/failed submission
+            # must never turn into an unrelated foreground-window keypress.
+            try:
+                accepted = self._dsh.decide(request_id, action)
+            except (OSError, ValueError, RuntimeError) as exc:
+                print(f"DSH approval {action} {request_id!r} failed: {type(exc).__name__}", file=sys.stderr)
+                return False
         else:
             accepted = self._desktop_key(tool, action)
         if not accepted:
+            if tool == "dsh" and self._dsh is not None:
+                print(f"DSH approval {action} {request_id!r} failed: adapter did not accept request", file=sys.stderr)
             return False
         self._handled.add((tool, request_id))
         if len(self._handled) > 128:
@@ -200,14 +213,38 @@ class AgentManager:
         return True
 
 
+def _dsh_loopback_host(host):
+    if isinstance(host, str) and host.lower() == "localhost":
+        return "127.0.0.1"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        raise ValueError("DSH host must be a loopback IP address or localhost") from None
+    if not address.is_loopback:
+        raise ValueError("DSH host must be a loopback IP address or localhost")
+    return str(address)
+
+
+def _dsh_authority(host, port):
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+
+
+class _DshNoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        # Cookie-bearing requests stay on the validated endpoint, including
+        # redirects to another port or another local service.
+        raise urllib.error.HTTPError(request.full_url, code, "DSH redirects disabled", headers, response)
+
+
 class _WebSocket:
     """Small text-frame WebSocket client for DSH's local Remote mux."""
 
     def __init__(self, host, port, cookie, timeout=2.0):
+        host = _dsh_loopback_host(host)
         self.sock = socket.create_connection((host, port), timeout=timeout)
         self.sock.settimeout(timeout)
         key = base64.b64encode(os.urandom(16)).decode("ascii")
-        request = (f"GET /api/remote.mux HTTP/1.1\r\nHost: {host}:{port}\r\n"
+        request = (f"GET /api/remote.mux HTTP/1.1\r\nHost: {_dsh_authority(host, port)}\r\n"
                    "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                    f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
                    f"Cookie: {cookie}\r\n\r\n").encode("ascii")
@@ -291,7 +328,7 @@ class DshApprovalAdapter:
     """Read and answer live DSH approval/request Remote Events."""
 
     def __init__(self, host=None, port=None, credentials_path=None, changed=None):
-        self.host = host or os.environ.get("XTE_DSH_HOST", "127.0.0.1")
+        self.host = _dsh_loopback_host(host or os.environ.get("XTE_DSH_HOST", "127.0.0.1"))
         self.port = int(port or os.environ.get("XTE_DSH_PORT", "3080"))
         self.credentials_path = Path(credentials_path or
                                      (Path(os.environ.get("USERPROFILE", Path.home())) / ".dsh" / ".credentials.yaml"))
@@ -325,11 +362,21 @@ class DshApprovalAdapter:
         outcome = "allowed-once" if action == "approve" else "rejected"
         try:
             self._post_result(pending["client_id"], request_id, outcome)
-        except (OSError, ValueError, urllib.error.URLError):
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            # Exception messages/URLs can include credentials. Keep only the
+            # diagnostic type, HTTP status or OS error code in the log.
+            cause = exc.reason if isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, Exception) else exc
+            reason = f"HTTP {exc.code}" if isinstance(exc, urllib.error.HTTPError) else type(cause).__name__
+            if isinstance(cause, OSError) and cause.errno is not None:
+                reason += f" (errno {cause.errno})"
+            print(f"DSH approval {action} {request_id!r} failed: {reason}", file=sys.stderr)
             return False
         with self._lock:
-            if self._pending and self._pending["event_id"] == request_id:
-                self._pending = None
+            if not self._pending or self._pending["event_id"] != request_id or \
+                    self._pending["client_id"] != pending["client_id"]:
+                print(f"DSH approval {action} {request_id!r} unconfirmed: request ended or changed", file=sys.stderr)
+                return False
+            self._pending = None
         self.changed.set()
         return True
 
@@ -358,6 +405,14 @@ class DshApprovalAdapter:
             finally:
                 if ws:
                     ws.close()
+                # Requests belong to this stream/client. Never expose one
+                # from a disconnected stream as an actionable old approval.
+                with self._lock:
+                    had_pending = self._pending is not None
+                    self._pending = None
+                    self._client_id = ""
+                if had_pending:
+                    self.changed.set()
 
     def _consume(self, value):
         if value.get("type") != "item":
@@ -397,6 +452,7 @@ class DshApprovalAdapter:
         self.changed.set()
 
     def _post_result(self, client_id, event_id, outcome):
+        host = _dsh_loopback_host(self.host)
         cookie = self._cookie()
         if not cookie:
             raise OSError("DSH credentials unavailable")
@@ -405,14 +461,16 @@ class DshApprovalAdapter:
                    "payload": {"args": {"clientId": client_id, "eventId": event_id,
                                           "outcome": {"kind": "result", "value": outcome}}}}
         request = urllib.request.Request(
-            f"http://{self.host}:{self.port}/api/$events/result",
+            f"http://{_dsh_authority(host, self.port)}/api/$events/result",
             data=json.dumps(message, separators=(",", ":")).encode("utf-8"),
             headers={"Content-Type": "application/json", "Cookie": cookie}, method="POST")
-        with urllib.request.urlopen(request, timeout=2) as response:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _DshNoRedirect())
+        with opener.open(request, timeout=2) as response:
             if response.status != 200:
                 raise OSError(f"DSH approval result HTTP {response.status}")
 
     def _cookie(self):
+        host = _dsh_loopback_host(self.host)
         try:
             content = self.credentials_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
@@ -421,7 +479,7 @@ class DshApprovalAdapter:
         if not match:
             return None
         secret = base64.urlsafe_b64decode(match.group(1) + "=")
-        authority = f"{self.host}:{self.port}"
+        authority = _dsh_authority(host, self.port)
         issued = int(time.time() * 1000)
         expires = issued + 30 * 24 * 60 * 60 * 1000
         body = base64.urlsafe_b64encode(json.dumps(

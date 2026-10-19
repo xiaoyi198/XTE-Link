@@ -1,0 +1,251 @@
+{
+  "schema": 1,
+  "version": "maintenance-20261019",
+  "firmware": {
+    "file": "firmware.bin",
+    "bytes": 934048,
+    "sha256": "94a8ba2bbc77fd03d4acdd02231291c6d53738ac0dd341cd8705bb45d82bc57c"
+  },
+  "assets": [
+    {
+      "file": "assets/ui/add-64.bmp",
+      "bytes": 2118,
+      "sha256": "db62459727b4a74f14eaab4141cf1b8bd0692f85ccdf133ac72263f74140c4c9",
+      "tf_path": "/xte-link/ui/gray-flat-v1/add-64.bmp"
+    },
+    {
+      "file": "assets/ui/assistant-64.bmp",
+      "bytes": 2118,
+      "sha256": "03bdc6544911e897476af6bad9a7366c7fb9775ecd2c315fd54af95e2754cd4c",
+      "tf_path": "/xte-link/ui/gray-flat-v1/assistant-64.bmp"
+    },
+    {
+      "file": "assets/ui/back-16.bmp",
+      "bytes": 126,
+      "sha256": "d0ccea1bdff7e4dccd90a1010ad9389162a5a01e0432cac3c5cfbd22bad50851",
+      "tf_path": "/xte-link/ui/gray-flat-v1/back-16.bmp"
+    },
+    {
+      "file": "assets/ui/battery-24.bmp",
+      "bytes": 158,
+      "sha256": "65ad7b1aa4b46e838006308967affeb6487bfe5fb8a91468eb315bbb9fd8142a",
+      "tf_path": "/xte-link/ui/gray-flat-v1/battery-24.bmp"
+    },
+    {
+      "file": "assets/ui/clash-64.bmp",
+      "bytes": 2118,
+      "sha256": "e05a3de3cffd9f5474c10637f462edf39337b95c9dc2f960ebc30e75668b32f9",
+      "tf_path": "/xte-link/ui/gray-flat-v1/clash-64.bmp"
+    },
+    {
+      "file": "assets/ui/computer-64.bmp",
+      "bytes": 2118,
+      "sha256": "7373610c0ef2693e0efd3d4fe479bb48911a3456d7987577acb8639865614b71",
+      "tf_path": "/xte-link/ui/gray-flat-v1/computer-64.bmp"
+    },
+    {
+      "file": "assets/ui/confirm-16.bmp",
+      "bytes": 126,
+      "sha256": "98c5f750f73e63a3ef5fe969ecd18f62d27362da896d2add04a3334c2f246472",
+      "tf_path": "/xte-link/ui/gray-flat-v1/confirm-16.bmp"
+    },
+    {
+      "file": "assets/ui/connection-32.bmp",
+      "bytes": 582,
+      "sha256": "b37ab766a7689603c216ac07a4023d8e1297ef9029724f8fc2a9dd0b4fb89ce7",
+      "tf_path": "/xte-link/ui/gray-flat-v1/connection-32.bmp"
+    },
+    {
+      "file": "assets/ui/display-32.bmp",
+      "bytes": 582,
+      "sha256": "66d7d99468bcbd91f2474e54644d85749feeee2a69b325ebe659aa82f5002beb",
+      "tf_path": "/xte-link/ui/gray-flat-v1/display-32.bmp"
+    },
+    {
+      "file": "assets/ui/down-16.bmp",
+      "bytes": 126,
+      "sha256": "0d7402c113c899a37908748a31bad1ba3fe7e1fb5d63ddbaebb1ce1c26869c7d",
+      "tf_path": "/xte-link/ui/gray-flat-v1/down-16.bmp"
+    },
+    {
+      "file": "assets/ui/external-power-24.bmp",
+      "bytes": 158,
+      "sha256": "c7400c31a1ceaddb6405737106e6d4d11894ea544ffdab5a6982bc8f437420b3",
+      "tf_path": "/xte-link/ui/gray-flat-v1/external-power-24.bmp"
+    },
+    {
+      "file": "assets/ui/gallery-32.bmp",
+      "bytes": 582,
+      "sha256": "7adac5b10b48a46a1342a3df38379d8825358a2e505f513084f43770bd1eccb0",
+      "tf_path": "/xte-link/ui/gray-flat-v1/gallery-32.bmp"
+    },
+    {
+      "file": "assets/ui/left-16.bmp",
+      "bytes": 126,
+      "sha256": "85c00423f0420a2d840fb909cc6e2f151e06a221868b9d2602ce43b3b0a5a7b1",
+      "tf_path": "/xte-link/ui/gray-flat-v1/left-16.bmp"
+    },
+    {
+      "file": "assets/ui/logo-128.bmp",
+      "bytes": 8262,
+      "sha256": "2b25e10668474fe2e629bc2efbee2c79dce2bf6b4fa799b7a0b292b3711a7ac8",
+      "tf_path": "/xte-link/ui/gray-flat-v1/logo-128.bmp"
+    },
+    {
+      "file": "assets/ui/logo-64.bmp",
+      "bytes": 2118,
+      "sha256": "238706eb096b03d017d0e655b36eac6323dc1899438a6f09ac77b1c18e6c390f",
+      "tf_path": "/xte-link/ui/gray-flat-v1/logo-64.bmp"
+    },
+    {
+      "file": "assets/ui/logo-32.bmp",
+      "bytes": 582,
+      "sha256": "59d55b1a0155dad4852780cbe2b5943093063e8fe240932c52953df743a94ec6",
+      "tf_path": "/xte-link/ui/gray-flat-v1/logo-32.bmp"
+    },
+    {
+      "file": "assets/ui/logo-24.bmp",
+      "bytes": 358,
+      "sha256": "92e9fc7c87e275360165ce8d4be5dcd4f6e0e2eba7621ef28933d65c53f7ba2b",
+      "tf_path": "/xte-link/ui/gray-flat-v1/logo-24.bmp"
+    },
+    {
+      "file": "assets/ui/note-64.bmp",
+      "bytes": 2118,
+      "sha256": "bdc6e1a269650f01b4dc693543dec5657c793a139b51118893bacf6840f68c63",
+      "tf_path": "/xte-link/ui/gray-flat-v1/note-64.bmp"
+    },
+    {
+      "file": "assets/ui/offline-24.bmp",
+      "bytes": 158,
+      "sha256": "233ce92b0cbeab1d14251d33e15875fdbcfbd8ae3aa04e129416e0ef81853389",
+      "tf_path": "/xte-link/ui/gray-flat-v1/offline-24.bmp"
+    },
+    {
+      "file": "assets/ui/power-32.bmp",
+      "bytes": 582,
+      "sha256": "b2367fc335b3e3de76a50d79d4afee3bb92644c3f4ec52753428f3bb97600b9b",
+      "tf_path": "/xte-link/ui/gray-flat-v1/power-32.bmp"
+    },
+    {
+      "file": "assets/ui/reminder-32.bmp",
+      "bytes": 582,
+      "sha256": "92065f265f00bbd372cfb8ae5c948aae498e1d27eb462a5624b274857dee652c",
+      "tf_path": "/xte-link/ui/gray-flat-v1/reminder-32.bmp"
+    },
+    {
+      "file": "assets/ui/right-16.bmp",
+      "bytes": 126,
+      "sha256": "557af4d361c70fcfd046a3b873935d6e00c25816572214838e502d1cdfa3f64c",
+      "tf_path": "/xte-link/ui/gray-flat-v1/right-16.bmp"
+    },
+    {
+      "file": "assets/ui/settings-64.bmp",
+      "bytes": 2118,
+      "sha256": "eb338ae9ee730f0930619c3f68e678ddb5f431209f225ccb80132b10fa25fa9b",
+      "tf_path": "/xte-link/ui/gray-flat-v1/settings-64.bmp"
+    },
+    {
+      "file": "assets/ui/shortcuts-64.bmp",
+      "bytes": 2118,
+      "sha256": "1310f6fb40f172b48962a3483ca55bfc606f50bdeece067d2af745d586d188db",
+      "tf_path": "/xte-link/ui/gray-flat-v1/shortcuts-64.bmp"
+    },
+    {
+      "file": "assets/ui/startup-32.bmp",
+      "bytes": 582,
+      "sha256": "281bc8e59ca424da947109b8338650522511285f0e5b6bf8472db97c0f204856",
+      "tf_path": "/xte-link/ui/gray-flat-v1/startup-32.bmp"
+    },
+    {
+      "file": "assets/ui/tf-card-24.bmp",
+      "bytes": 158,
+      "sha256": "6bef056d99d1ecb39be975c9c1e569a1cb9dd7fb079dcd5cb96d0680c9bbd6b6",
+      "tf_path": "/xte-link/ui/gray-flat-v1/tf-card-24.bmp"
+    },
+    {
+      "file": "assets/ui/up-16.bmp",
+      "bytes": 126,
+      "sha256": "9cc5830c4540394963ca4a29e6449a7de728c2454ca92d11281217a99caa5f4e",
+      "tf_path": "/xte-link/ui/gray-flat-v1/up-16.bmp"
+    },
+    {
+      "file": "assets/ui/usb-24.bmp",
+      "bytes": 158,
+      "sha256": "581212809394cedfb4bfda0276584c8c311e1318c3d3477e2c23cb155d5aac17",
+      "tf_path": "/xte-link/ui/gray-flat-v1/usb-24.bmp"
+    },
+    {
+      "file": "assets/ui/volume-64.bmp",
+      "bytes": 2118,
+      "sha256": "d6fece75f3de20a708181b8e391fc182d2c9581bddfee1b0b377984f38ee3271",
+      "tf_path": "/xte-link/ui/gray-flat-v1/volume-64.bmp"
+    },
+    {
+      "file": "assets/ui/wifi-24.bmp",
+      "bytes": 158,
+      "sha256": "f643a4b6a7c8a149f35de3ef8bb6dd95506cd16d03db6a1e0143919ce361116d",
+      "tf_path": "/xte-link/ui/gray-flat-v1/wifi-24.bmp"
+    },
+    {
+      "file": "assets/sleep/hardware-lab.bmp",
+      "bytes": 192070,
+      "sha256": "5e42eb1cf3107bddc01861738fd8523bee03cb42b0c4f826e4fd4ec300052005",
+      "tf_path": "/.sleep/hardware-lab.bmp"
+    },
+    {
+      "file": "assets/sleep/quiet-terminal.bmp",
+      "bytes": 192070,
+      "sha256": "7144ec86c57e93230501f30183c9706fd169682ff56f4d9c21dc497df01e0ee4",
+      "tf_path": "/.sleep/quiet-terminal.bmp"
+    }
+  ],
+  "support": [
+    {
+      "file": "firmware-manifest.json",
+      "bytes": 4388,
+      "sha256": "6df9a0074507ae028881105cfbb134efad1624533b30b86e87fd41e4e427658d"
+    },
+    {
+      "file": "font-reference.json",
+      "bytes": 2996,
+      "sha256": "64c574a84785f88fe9ae1a884d6080bf3a659a025e0e60a8a46b07b5f06696a2"
+    },
+    {
+      "file": "LICENSE-MiSans.txt",
+      "bytes": 1287,
+      "sha256": "a5a8a50c0dc9fb6e18971b11860b2e54d9e303cae904a55ba0a178f294f43501"
+    },
+    {
+      "file": "gen_esp32part.py",
+      "bytes": 22594,
+      "sha256": "ddf6a05b170f9014fe7046b1b244dd4b3ef41254d926fd4e7f7b94ee300531e2"
+    },
+    {
+      "file": "使用说明.txt",
+      "bytes": 2528,
+      "sha256": "b75a756ff6d32f7acc8370cc7caad4666050d4bde4d3aafb83b88995febf7efb"
+    },
+    {
+      "file": "THIRD-PARTY-NOTICES.txt",
+      "bytes": 242288,
+      "sha256": "7aaac2299b032866bb84530e9e91be74fcb684444cc8b6dbf512d6cc04dce10d"
+    },
+    {
+      "file": "corresponding-source.zip",
+      "bytes": 931700,
+      "sha256": "d7cc0d659643acd663e2f5da83cda1aad0bed4734115cb3772726f3da3620ec3"
+    }
+  ],
+  "devices": [
+    {
+      "name": "Pixel 3.0.12 recovery layout",
+      "partition_sha256": "9af3af2b74e944337ba85f2b0027ee80df160579a1ab746ba0f95853f618cd60",
+      "boot_sha256": "cf8a2d9f62d88f4bfd4169c11970048b3aa09d9407266807186948748ef88f4e",
+      "recovery_md5": "7d1ce81a310c52ed7afc6a0a65f3d00c"
+    }
+  ],
+  "parser_source": "Arduino-ESP32 2.0.17, framework package 3.20017.241212+sha.dcc1105b; Apache-2.0",
+  "sdk_commit": "7d86603ad27709a9a766bb5ad893cfc39e60777e",
+  "ymodem_commit": "efb1466d00bc8f4f591c770cd349819675e83b83"
+}

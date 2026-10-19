@@ -14,8 +14,9 @@ Codex 通过 Windows 桌面 IPC 同步状态和命令／文件审批，设备 �
 ## 直接使用
 
 当前 Windows 托盘驱动：
-[XTE-Link.exe](artifacts/pc-driver/installer-20261019-r1/XTE-Link.exe)（2026-10-19，单文件安装与维护版）。
-首次运行自动打开安装窗口，提供“一键完整安装／更新”、刷入配套固件、下载构建并安装字库、安装内置图片素材。
+[XTE-Link.exe](artifacts/pc-driver/maintenance-20261019-r1/XTE-Link.exe)（2026-10-19，维护修复版；软件验证通过，配套固件尚未刷机）。
+首次与托盘双击打开只读连接／版本状态；明确进入“设备安装与维护”后可完整安装、刷固件或安装字库／素材。
+完整安装与刷固件先确认目标和范围；停止／退出等待当前写入及必要校验安全收尾。
 EXE 内置固件、30 个 UI 图标／Logo、两张屏保、刷机与字体转换工具，无需安装开发环境或准备仓库文件。
 字库首次从小米官方下载约 228 MB 的 MiSans 包，在本机生成并缓存，也可导入已有官方 ZIP。
 安装前核对设备身份与真实分区／OTA 状态；首次保存当前完整 Flash，后续复用匹配备份；仅更新应用，保留恢复区。
@@ -68,80 +69,38 @@ X4 ✓ 回传真实 Codex 命令审批已实测成功，拒绝／取消的实体
 
 ## 固件与验证
 
-当前应用：[firmware.bin](artifacts/firmware/installer-20261019/firmware.bin)，版本 `installer-20261019`。
-已通过安装器刷入现有验证设备；独立 verify_flash、完整应用读回、系统区与恢复 app0 摘要检查通过。
-保留新 YMODEM 传输；补充卡内文件摘要、空间查询、无覆盖改名、版本握手与资源安装后刷新。
-电脑端 112 项回归、设备资源重复安装、文件替换与独立下载对比通过；单 EXE 的内置运行库和四份字库生成已验证。
-备份、打包方式及实测范围见[安装器验收记录](artifacts/firmware/installer-20261019/VERIFICATION.md)。
+当前交付：[firmware.bin](artifacts/firmware/maintenance-20261019/firmware.bin)，版本 `maintenance-20261019`，
+配套驱动为上面的 `maintenance-20261019-r1`。软件验证通过，**当前交付固件尚未刷机**。
+电脑端 147 项与构建检查 8 项回归通过，原工作区及干净源码构建通过，EXE 冻结自检通过。
+实测边界及设备待验项见[维护性修复验证](docs/维护性修复验证-2026-10-19.md)。
+上次设备刷入版本为 `installer-20261019`；该固件、安装器及所有历史版本已移入项目旁的备份目录，
+回退入口、完整 Flash／TF 备份及历史校验记录见[归档说明](docs/归档说明.md)。
 
-此前应用：[firmware.bin](artifacts/firmware/usb-tf-20261019/firmware.bin)，版本 `usb-tf-20261019`，
-已刷入验证设备 app1；完整应用读回、系统区和恢复 app0 摘要检查通过，保留 MiSans 与灰度 UI。
-1 MiB 上传约 8.34 秒，原协议约 31.41 秒；4 MiB 约 30.2 秒，新路径均含完整 TF 回读 SHA-256。
-CRC/丢 ACK/序号回绕/取消/超时/哈希错误恢复、旧协议回退和独立下载通过。
-接收器复用固定版本的 LoBo ESP32 YMODEM，通过 SDK `FsFile` 写卡；
-来源、硬件范围、实测数据与限制见 [验收记录](artifacts/firmware/usb-tf-20261019/VERIFICATION.md)。
+当前页面使用 MiSans 24/32/40px 中文和 64px 数字字库，由电脑本地生成后安装到 TF。
+来源、路径与读取方式见[字库说明](firmware/FONTS.md)、[转换工具](tools/misans/README.md)和[许可原文](tools/misans/LICENSE-MiSans.txt)。
+缺少字体或读取失败时显示方框；旧 Zheng 字库保留供兼容与回退使用。
 
-MiSans 多字号已上传 TF 并刷入设备：[接入与验收说明](firmware/FONTS.md)、
-[转换工具与官方获取方式](tools/misans/README.md)。XTE-Link 使用小米提供的 MiSans 字体，
-保留其[许可原文](tools/misans/LICENSE-MiSans.txt)；字体不适用本仓库代码的 MIT 许可。
-24/32/40px 中文与 64px 数字字库由电脑本地生成到 TF 资源目录，不作为独立字体包公开分发。
-此前 MiSans 应用：[firmware.bin](artifacts/firmware/misans-20261018/firmware.bin)，版本 `misans-20261018`。
-四份字库的完整 SD 重读 SHA-256、应用独立完整读回、系统区与恢复槽校验通过；
-设备启动正常，灰度素材无缺失，电脑驱动已恢复。字号观感和实体操作仍待观察。
+当前 UI 使用 [gray-flat-v1 图标与 Logo](assets/ui/gray-flat-v1/README.md)，包含 30 个 TF BMP。
+图标复用 Phosphor 2.1.1（MIT），通过现有 BMP 读取器和 SDK 灰度接口绘制；缺失时回退原图标。
+实时电量动态绘制，电池分压未校准；灰度需额外波形，实屏观感、连续操作与残影以设备验收为准。
 
-灰度扁平 UI 素材第一版见 [图标与 Logo](assets/ui/gray-flat-v1/README.md)：
-26 枚图标、4 种尺寸的小 Logo，包含 SVG 源图、PNG 预览、TF 用 BMP 与来源记录。
-已接入下列固件并上传 TF：页头 Logo、两页菜单、设置分类、连接/供电状态与横屏按键提示。
-实时电量仍动态绘制；缺卡或素材读取失败时回退到原图标。
+Clash 面板支持订阅列表、策略组与节点分页、节点选择、代理及 TUN 开关的二次确认。
+当前兼容动作修改 WinINet／Mihomo 运行时状态，不写 Verge 保存配置，界面与重启后的状态可能不同步。
+代理守卫或其他程序管理代理时拒绝兼容切换；订阅更新需完整 Verge 兼容补丁。
+真实系统代理开关及恢复已有实测，真实 TUN 写入未验证；当前版本不得据此宣称全部实体操作通过。
 
-此前灰度 UI 应用：[firmware.bin](artifacts/firmware/gray-flat-ui-20261018/firmware.bin)，
-版本 `gray-flat-ui-20261018`。此前已刷入验证设备 app1，独立镜像校验、系统区与恢复槽摘要检查通过。
-30 个 TF BMP 已全部读回校验；启动加载 13 项素材、无缺失，灰度刷新正常，电脑状态与心跳回执正常。
-图标复用 Phosphor 2.1.1（MIT），通过现有 BMP 读取器与 SDK 灰度接口绘制；不新增整屏缓冲。
-灰度每次需追加灰度波形，首屏约 2.3 秒；屏幕观感、连续操作与残影仍需实体设备验收。
-
-此前设置中心应用：[firmware.bin](artifacts/firmware/settings-center-20261018/firmware.bin)，
-版本 `settings-center-20261018`，六分类设置中心，完成编译、生产代码主机测试与 UI 渲染；
-已于 2026-10-18 刷入当前验证设备 app1；独立校验通过，系统前 64 KiB 和恢复 app0 摘要不变。
-设备正常启动、TF/字库正常，电脑驱动已恢复，局域网状态与心跳回执正常。
-新版不需要更改协议；原驱动仍可使用，新 EXE 更新图片上传说明。
-自动休眠仅在电池供电时生效；按键、TF 传输、有效待审批、设置页与 Clash 等待/确认暂停计时。
-深睡停止接收消息，仍通过长按电源唤醒。助手自动跳页等待按键松开，设置编辑期间不抢页面。
-固件 SHA-256、源码摘要、SDK commit 和软件验收范围见同目录 `manifest.json`。
-
-此前已刷入并验证的应用：[firmware.bin](artifacts/firmware/clash-controls-20261017-232833/firmware.bin)，
-版本 `clash-controls-20261017`，SHA-256 与构建来源见同目录校验文件和 `manifest.json`。
-已刷入当前验证设备 app1；独立镜像校验通过，系统前 64 KiB 和恢复程序摘要不变。
-本版接通第二页 Clash Verge：真实订阅列表、策略组与节点分页、当前节点标记、
-手选节点、代理及 TUN 开关二次确认、超时和兼容性提示。用户已确认前版实屏进入与列表显示正常。
-需搭配上述新电脑驱动，旧驱动会显示“驱动未响应，请更新电脑驱动”。
-现有 Mihomo 命名管道可读数据和切换运行时节点；选择不保证重启或配置重载后保留。
-代理开关通过 Windows WinINet，TUN 开关通过当前 Mihomo 内核管道；不再因缺少 Verge 补丁禁用。
-这些兼容动作不写 Verge 保存配置，Verge 自己的开关可能不同步，重启/重载或操作其界面可能恢复。
-代理守卫、自动检测或其他程序正在管理的代理拒绝此兼容路径，避免反复覆盖。
-TUN 功能保留给用户，开发验证只做隔离测试，真实 TUN 写入请求为 0。
-订阅更新已按能力接线，但当前官方 Verge 仍需完整兼容补丁；未安装时只读列表并说明原因。
-系统代理关闭/开启并恢复原状态已实测，TUN 和 Verge 配置文件不变；不冒充完整四项交付。
-上述已刷入 Clash 版本静态 RAM 为 103900 字节，应用镜像 907168 字节；7540 字形、实际渲染函数和
-按钮状态机回归通过，电脑驱动 91 项测试通过。
-电量仍使用 SDK 默认分压倍数，百分比仅供参考。
-中文界面需自行准备 TF 字库 `/fonts/Zheng20号.epdfont`；
-匹配文件为 7,958,602 字节，SHA-256：
-`b62eba931c899cb676b71cc6759d805f65e67ba79bc94180fdb5ce7431c9cb59`。
-字体文件不随仓库分发，缺失或读取失败显示方框。
-
-**不要使用 PlatformIO 默认 upload。** 刷写前核对备份、设备、分区和 OTA 启动槽，
-只更新已确认的应用槽并独立校验，保留引导器、分区和恢复更新器。
-现有实测设备的 app1 为 `0x650000`，不能直接套用到其他设备。
-已有完整备份来自 Pixel 3.0.12，原厂备份缺失。
+**不要使用 PlatformIO 默认 upload。** 刷前核对设备、分区、OTA、应用摘要与已有备份，
+只更新已确认的应用槽，独立校验并保留引导器、分区和恢复程序。
+已有验证设备的 app1 为 `0x650000`，不能套用到其他设备。
+现存完整备份来自 Pixel 3.0.12，原厂完整备份缺失。
 
 ## 横屏操作
 
-当前 `settings-center-20261018` 沿用两页 2×2 应用菜单：
+当前版本使用两页 2×2 应用菜单：
 第一页为电脑状态、系统音量、助手控制、设置；第二页为快捷功能、Clash Verge、占位二、占位三
 （闪电、网络节点、便签、加号）。Clash Verge 可进入控制面板，其余三项仍是占位。
 底部方点与页码显示位置。进入/退出应用半刷，选择与翻页快刷。
-旧版开机及唤醒进入第一页，沿用已有菜单默认项；设置中心开发版可选菜单、指定应用或上次应用，
+开机和唤醒可选菜单、指定应用或上次应用，
 默认应用支持 Clash，并定位到菜单第二页。
 
 以下操作适用于两页菜单版，方向均采用当前横屏视角：
@@ -161,9 +120,9 @@ TUN 功能保留给用户，开发验证只做隔离测试，真实 TUN 写入�
 | 设置详情 / 恢复默认 | 无操作 | 无操作 | 详情刷新；重置页确认恢复 | 返回列表 |
 
 顶部 ←/→ 对应 SDK `BTN_UP/BTN_DOWN`，右侧 ↑/↓ 对应 `BTN_RIGHT/BTN_LEFT`。
-设置分类/图库操作适用于设置中心开发版。每页分别保留选中项，返回菜单保留选中应用；
+完整选项见[设置中心](docs/设置中心.md)。每页分别保留选中项，返回菜单保留选中应用；
 打开应用的一次按键不会同时执行音量或审批动作。
-新版图标读取 TF `/xte-link/ui/gray-flat-v1/`，缺失时复用原 Adafruit GFX 图元回退；文字读取原 TF 字库。
+新版图标读取 TF `/xte-link/ui/gray-flat-v1/`，缺失时复用原 Adafruit GFX 图元回退；文字读取 TF 上的 MiSans 字库。
 菜单翻页、选择和内容更新使用快刷，进入/退出应用使用“半刷”（SDK `HALF_REFRESH`，仍覆盖整屏）；新版额外执行灰度覆盖与差分基线恢复。
 菜单继续接收数据，普通指标不重绘，审批数量变化更新角标，
 连接状态变化仍立即更新。短按电源全刷，长按约 1.5 秒休眠，再次长按唤醒。
@@ -181,9 +140,12 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m platformio run -e xteink_x4
 ```
 
-固件输出 `.pio/build/xteink_x4/firmware.bin`，成功构建自动备份至 `backups/firmware/`。
+固件输出 `.pio/build/xteink_x4/firmware.bin`，成功构建先自动备份至 `backups/firmware/`，
+本轮完成后按[归档规则](docs/归档说明.md)迁入项目旁的备份目录，保留全部版本。
 SDK 固定 commit `7d86603ad27709a9a766bb5ad893cfc39e60777e`；
-补丁脚本给已有 SDCardManager 接入格式化接口，可重复执行。
+补丁脚本给已有 SDCardManager 接入格式化与空间查询，可重复执行；
+构建前只读检查固定版本与补丁已应用状态，不自动覆盖本地改动。
+归档记录主仓库 HEAD/dirty、补丁和实际依赖源文件摘要。
 工具链和固件库版本固定在 `platformio.ini`，SDK 通过子模块和 `symlink://` 引用。
 YMODEM 子模块固定 commit `efb1466d00bc8f4f591c770cd349819675e83b83`，
 必须应用上述接收适配补丁；[补丁说明](patches/README-ymodem.md)包含来源、许可及修改范围。
@@ -195,18 +157,38 @@ Windows EXE 构建：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r pc_driver/requirements-build.txt
-.\.venv\Scripts\python.exe scripts/build_driver.py
+.\.venv\Scripts\python.exe scripts/build_driver.py --firmware <归档目录>
 ```
 
 生成产物位于 `artifacts/pc-driver/<构建时间>/`。
 也可运行 `.\.venv\Scripts\python.exe -m pc_driver.driver --port COM3`，
 将 `COM3` 替换为实际串口。传感器不可用时返回缺失值。
 
+## 软件回归
+
+Windows、Python 3.11：先按上文构建固件，再执行以下命令。构建提供固定分区解析器与主机测试头文件，
+无需字库包、设备、真实审批或代理设置。CI 复用同一组命令，见 [.github/workflows/validate.yml](.github/workflows/validate.yml)。
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r pc_driver/requirements-build.txt
+.\.venv\Scripts\python.exe -B -m unittest scripts.test_build
+.\.venv\Scripts\python.exe -B -m unittest discover -s pc_driver -p 'test_*.py'
+.\.venv\Scripts\python.exe firmware/tests/verify_settings.py
+.\.venv\Scripts\python.exe firmware/tests/verify_ymodem.py
+.\.venv\Scripts\python.exe firmware/tests/verify_ymodem_interop.py
+```
+
+EXE 打包前检查声明的依赖 pins；额外安装的无关包不影响检查，不自动修改 Python 环境。
+源代码开发须遵守 [硬件契约](docs/硬件契约-核实版.md)、[横屏按键约定](docs/按键方向约定.md)；
+通信细节见 [协议](PROTOCOL.md)，维护范围见 [本轮计划](docs/维护性修复计划-2026-10-19.md)。
+
 ## 仓库范围与许可
 
 保留固件与驱动运行源码、必要构建脚本和依赖、SDK 子模块与补丁、两套息屏素材、
 当前 EXE/固件及其校验文件、本 README 和 [MIT 许可证](LICENSE)。
-完整备份、其他历史产物、截图和详细开发文档只在本地保留；随源码保留必要的验证脚本。
+完整备份、旧发布包、实验输出和历史文档位于项目旁的 `../XTE-Link-备份/`；
+项目中只保留当前交付版本，仍保留必要的源素材、构建依赖和验证脚本。
+后续工作结束时按 [AGENTS.md](AGENTS.md) 主动归档；位置与恢复方式见[归档说明](docs/归档说明.md)。
 更新公开版本时同步调整 `.gitignore` 中的产物目录。
 
 项目自己的代码采用 MIT；SDK 及其他依赖遵循各自许可证，

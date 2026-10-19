@@ -12,6 +12,13 @@ void press(uint8_t key) {
   input.pressed = 0;
 }
 
+void pushClashFrame(JsonDocument& frame) {
+  frame["v"] = 2; frame["cmd"] = "clash";
+  char line[768];
+  const size_t length = serializeJson(frame, line, sizeof(line));
+  assert(handlePush(line, length));
+}
+
 void edit(Setting item) {
   appMenu = false; page = Page::SETTINGS; settingsMode = SettingsMode::LIST;
   for (uint8_t group = 0; group < GROUP_COUNT; ++group)
@@ -103,7 +110,10 @@ int main() {
   menuSelection[1] = 1; press(InputManager::BTN_CONFIRM); assert(page == Page::CLASH && clash.pending);
   const size_t requests = Serial.lines.size();
   press(InputManager::BTN_CONFIRM); assert(Serial.lines.size() == requests);
-  press(InputManager::BTN_BACK); assert(appMenu && menuPage == 1 && !clash.pending);
+  const uint32_t waitingRead = clash.sequence;
+  press(InputManager::BTN_BACK); assert(appMenu && menuPage == 1 && clash.pending);
+  press(InputManager::BTN_CONFIRM);
+  assert(!appMenu && clash.pending && clash.sequence == waitingRead && Serial.lines.size() == requests);
 
   // Home categories and editors keep the landscape direction contract.
   openApp(Page::SETTINGS); selectedGroup = 0;
@@ -328,7 +338,8 @@ int main() {
   network.lan = false;
   // The actual Clash receiver commits only a complete matching page.
   appMenu = false; page = Page::CLASH;
-  clash.begin(30000);
+  clash = xte::ClashPanel{};
+  assert(clash.begin(30000));
   StaticJsonDocument<768> frame;
   frame["id"] = clash.sequence + 1; frame["phase"] = "error"; frame["message"] = "旧请求";
   assert(!clash.accept(frame) && clash.pending);
@@ -352,16 +363,24 @@ int main() {
   assert(clash.confirming && Serial.lines.size() == beforeConfirm);
   press(InputManager::BTN_BACK); assert(!clash.confirming && !appMenu);
   press(InputManager::BTN_CONFIRM); press(InputManager::BTN_CONFIRM);
-  assert(clash.pending && clash.longRequest && Serial.lines.size() == beforeConfirm + 1);
+  assert(clash.pending && clash.writeRequest && Serial.lines.size() == beforeConfirm + 1);
   assert(Serial.lines.back().find("\"op\":\"activate\"") != std::string::npos);
   frame.clear(); frame["id"] = clash.sequence; frame["phase"] = "error"; frame["message"] = "结果待确认，请刷新";
   assert(clash.accept(frame) && !clash.pending && !clash.complete);
   press(InputManager::BTN_CONFIRM);
   assert(Serial.lines.back().find("\"op\":\"list\"") != std::string::npos);
+  const uint32_t waitingNodes = clash.sequence;
+  press(InputManager::BTN_BACK);
+  assert(appMenu && !strcmp(clash.view, "nodes") && clash.pending);
+  openApp(Page::CLASH);
+  assert(!strcmp(clash.view, "nodes") && clash.pending && clash.sequence == waitingNodes);
+  frame.clear(); frame["id"] = clash.sequence; frame["phase"] = "error"; frame["message"] = "读取失败";
+  pushClashFrame(frame);
   press(InputManager::BTN_BACK);
   assert(!strcmp(clash.view, "groups") && clash.pending);
-  press(InputManager::BTN_BACK);
-  assert(!strcmp(clash.view, "home") && clash.pending);
+  frame["id"] = clash.sequence; pushClashFrame(frame);
+  press(InputManager::BTN_BACK); assert(!strcmp(clash.view, "home") && clash.pending);
+  frame["id"] = clash.sequence; pushClashFrame(frame);
   press(InputManager::BTN_BACK); assert(appMenu && !clash.pending);
   // Both home switches require a second confirmation; cancel emits no action.
   appMenu = false; page = Page::CLASH;
@@ -374,8 +393,100 @@ int main() {
     press(InputManager::BTN_BACK);
     assert(!clash.confirming && Serial.lines.size() == beforeSwitch);
     press(InputManager::BTN_CONFIRM); press(InputManager::BTN_CONFIRM);
-    assert(clash.pending && clash.longRequest && Serial.lines.size() == beforeSwitch + 1);
+    assert(clash.pending && clash.writeRequest && Serial.lines.size() == beforeSwitch + 1);
   }
+
+  // A pending node write survives exit, reentry and a fresh telemetry connection.
+  clash = xte::ClashPanel{}; appMenu = false; page = Page::CLASH; hostNow = 40000;
+  strcpy(clash.view, "nodes"); strcpy(clash.revision, "1234567890abcdef");
+  clash.complete = true; clash.count = 1; clash.rows[0].enabled = true;
+  press(InputManager::BTN_CONFIRM); press(InputManager::BTN_CONFIRM);
+  const uint32_t writingNode = clash.sequence;
+  const size_t sentNode = Serial.lines.size();
+  assert(clash.pending && clash.writeRequest);
+  assert(!clash.begin(hostNow) && clash.sequence == writingNode);
+  sendClashRequest(); sendClashRequest(true);
+  assert(Serial.lines.size() == sentNode && clash.sequence == writingNode);
+  press(InputManager::BTN_BACK);
+  assert(appMenu && clash.pending && !strcmp(clash.view, "nodes"));
+  openApp(Page::CLASH);
+  assert(clash.pending && clash.sequence == writingNode && Serial.lines.size() == sentNode);
+  haveStatus = false; acceptStatus(connected);
+  assert(clash.pending && clash.sequence == writingNode && Serial.lines.size() == sentNode + 1);
+  press(InputManager::BTN_BACK); openApp(Page::STATUS); renderNow = false;
+
+  // Matching fragmented results commit off-page without repainting that page.
+  frame.clear(); frame["id"] = writingNode + 1; frame["phase"] = "error"; frame["message"] = "错误 ID";
+  const size_t ignoredFrames = Serial.lines.size();
+  pushClashFrame(frame);
+  assert(clash.pending && !renderNow && Serial.lines.size() == ignoredFrames);
+  frame.clear(); frame["id"] = writingNode; frame["phase"] = "begin";
+  frame["view"] = "nodes"; frame["page"] = 0; frame["pages"] = 1;
+  frame["rev"] = "abcdef1234567890"; frame["count"] = 1;
+  pushClashFrame(frame);
+  assert(clash.pending && !renderNow && !clash.unseenResult);
+  frame.clear(); frame["id"] = writingNode; frame["phase"] = "end"; frame["message"] = "已切换";
+  pushClashFrame(frame);
+  assert(clash.pending && !clash.complete && !renderNow);  // Incomplete frame set stays pending.
+  frame["phase"] = "row"; frame["index"] = 0; frame["name"] = "已选节点";
+  frame["current"] = true; frame["enabled"] = true;
+  pushClashFrame(frame);
+  frame["phase"] = "end"; pushClashFrame(frame);
+  assert(!clash.pending && clash.complete && clash.unseenResult && !renderNow);
+  assert(clash.rows[0].current && !strcmp(clash.message, "已切换"));
+  const size_t receivedNode = Serial.lines.size();
+  openApp(Page::CLASH);
+  assert(clash.complete && !clash.unseenResult && clash.sequence == writingNode);
+  assert(Serial.lines.size() == receivedNode && !strcmp(clash.message, "已切换"));
+
+  // Off-page write timeouts remain uncertain; reentry only refreshes on explicit confirmation.
+  for (const char* view : {"home", "nodes", "profiles"}) {
+    clash = xte::ClashPanel{}; appMenu = false; page = Page::CLASH; hostNow = UINT32_MAX - 1000;
+    strcpy(clash.view, view); clash.complete = true; clash.count = 5;
+    clash.selected = !strcmp(view, "home") ? 3 : 0; clash.rows[clash.selected].enabled = true;
+    press(InputManager::BTN_CONFIRM); press(InputManager::BTN_CONFIRM);
+    const uint32_t pendingWrite = clash.sequence;
+    press(InputManager::BTN_BACK); renderNow = false;
+    expireClashRequest(hostNow + 69999); assert(clash.pending && !renderNow);
+    expireClashRequest(hostNow + 70000);
+    assert(!clash.pending && !clash.complete && clash.unseenResult && !renderNow);
+    assert(!strcmp(clash.message, "结果待确认，请刷新"));
+    const size_t timedOut = Serial.lines.size();
+    frame.clear(); frame["id"] = pendingWrite; frame["phase"] = "error"; frame["message"] = "迟到回执";
+    pushClashFrame(frame);
+    assert(Serial.lines.size() == timedOut && !strcmp(clash.message, "结果待确认，请刷新"));
+    openApp(Page::CLASH);
+    assert(clash.sequence == pendingWrite && !clash.pending && Serial.lines.size() == timedOut);
+    haveStatus = false; acceptStatus(connected);
+    assert(!clash.pending && clash.sequence == pendingWrite && Serial.lines.size() == timedOut + 1);
+    press(InputManager::BTN_CONFIRM);
+    assert(clash.pending && !clash.writeRequest && clash.sequence == pendingWrite + 1);
+    assert(Serial.lines.back().find("\"op\":\"list\"") != std::string::npos);
+    renderNow = false; pushClashFrame(frame);
+    assert(clash.pending && !renderNow && clash.sequence == pendingWrite + 1);
+  }
+
+  // Off-page driver errors survive reentry, while read timeouts keep the shorter deadline.
+  clash = xte::ClashPanel{}; strcpy(clash.view, "nodes");
+  assert(clash.begin(50000, true));
+  openApp(Page::SETTINGS); renderNow = false;
+  frame.clear(); frame["id"] = clash.sequence; frame["phase"] = "error"; frame["message"] = "操作失败，请刷新";
+  pushClashFrame(frame);
+  assert(!clash.pending && clash.unseenResult && !renderNow && !clash.complete);
+  const size_t failedWrite = Serial.lines.size(); openApp(Page::CLASH);
+  assert(Serial.lines.size() == failedWrite && !strcmp(clash.message, "操作失败，请刷新"));
+  press(InputManager::BTN_CONFIRM); assert(clash.pending && !clash.writeRequest);
+  renderNow = false; expireClashRequest(hostNow + 9999); assert(clash.pending && !renderNow);
+  expireClashRequest(hostNow + 10000); assert(!clash.pending && renderNow && !clash.complete);
+  assert(!strcmp(clash.message, "驱动未响应，请更新电脑驱动"));
+  press(InputManager::BTN_CONFIRM); assert(clash.pending && !clash.writeRequest);
+  const uint32_t expiringRead = clash.sequence;
+  press(InputManager::BTN_BACK); renderNow = false;
+  expireClashRequest(hostNow + 10000);
+  assert(!clash.pending && clash.unseenResult && !renderNow);
+  const size_t readTimedOut = Serial.lines.size(); openApp(Page::CLASH);
+  assert(!clash.pending && clash.sequence == expiringRead && Serial.lines.size() == readTimedOut);
+  assert(!strcmp(clash.message, "驱动未响应，请更新电脑驱动"));
   puts("PASS: legacy migration, all settings editors, startup/resume, gallery/gray preview, image rotation, save failure/retry, ghost cadence, approval focus isolation, battery sleep guards, volume and Clash regressions");
   return 0;
 }

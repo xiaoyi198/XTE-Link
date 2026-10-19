@@ -125,7 +125,11 @@ def flash_device(port, bundle, root, report, expected_mac=None, check_cancel=lam
             report("首次安装：正在备份当前完整 Flash，请保持 USB 连接……", 0)
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
             path = device_root / f"current-full-{stamp}.bin"
-            full = esp.read_flash(0, FLASH_SIZE, lambda done, total: report("备份当前完整 Flash", done / total))
+            def backup_progress(done, total):
+                check_cancel()
+                report("备份当前完整 Flash", done / total)
+            full = esp.read_flash(0, FLASH_SIZE, backup_progress)
+            check_cancel()
             if hashlib.md5(full).hexdigest() != esp.flash_md5sum(0, FLASH_SIZE):
                 raise OSError("完整备份与设备摘要不一致，未刷写。")
             with path.open("xb") as stream:
@@ -145,8 +149,11 @@ def flash_device(port, bundle, root, report, expected_mac=None, check_cancel=lam
         old_path = device_root / f"app1-{old_md5}.bin"
         if not old_path.exists():
             report("保存更新前的应用分区……", 0)
-            previous = esp.read_flash(target.offset, target.size,
-                                      lambda done, total: report("保存更新前的应用分区", done / total))
+            def app_progress(done, total):
+                check_cancel()
+                report("保存更新前的应用分区", done / total)
+            previous = esp.read_flash(target.offset, target.size, app_progress)
+            check_cancel()
             if hashlib.md5(previous).hexdigest() != old_md5:
                 raise OSError("旧应用备份校验失败，未刷写。")
             old_path.write_bytes(previous)

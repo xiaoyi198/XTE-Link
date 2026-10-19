@@ -13,7 +13,7 @@ struct ClashPanel {
   uint16_t page = 0, pages = 1, nextPages = 1, nextPage = 0;
   uint8_t count = 0, selected = 0, received = 0, nextCount = 0;
   bool pending = false, complete = false, confirming = false;
-  bool longRequest = false;
+  bool writeRequest = false, unseenResult = false;
 
   static bool copyText(JsonVariantConst value, char* out, size_t capacity) {
     if (!value.is<const char*>()) return false;
@@ -30,12 +30,27 @@ struct ClashPanel {
     return true;
   }
 
-  void begin(uint32_t now) {
+  bool selectionWrites() const {
+    return !strcmp(view, "nodes") || !strcmp(view, "profiles") ||
+           (!strcmp(view, "home") && (selected == 2 || selected == 3));
+  }
+
+  bool begin(uint32_t now, bool writes = false) {
+    if (pending) return false;
     if (++sequence == 0) ++sequence;
     requestedAt = now; pending = true; complete = false; confirming = false;
+    writeRequest = writes; unseenResult = false;
     received = 0; nextCount = 0;
     nextRevision[0] = 0;
-    strcpy(message, "正在读取");
+    strcpy(message, writes ? "正在执行，请等待结果" : "正在读取");
+    return true;
+  }
+
+  bool expire(uint32_t now) {
+    if (!pending || now - requestedAt < (writeRequest ? 70000u : 10000u)) return false;
+    pending = false; complete = false;
+    strcpy(message, writeRequest ? "结果待确认，请刷新" : "驱动未响应，请更新电脑驱动");
+    return true;
   }
 
   bool accept(JsonDocument& doc) {

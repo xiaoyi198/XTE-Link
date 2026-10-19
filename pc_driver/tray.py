@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 import threading
 import queue
+import time
 from contextlib import contextmanager
 
 from PIL import Image, ImageDraw
@@ -66,16 +67,21 @@ class TrayApp:
         self.lock = threading.Lock()
         self.maintenance = threading.Event()
         self.installer_running = threading.Event()
+        self.installer_cancel = threading.Event()
+        self.dialog_show = threading.Event()
+        self.open_maintenance = threading.Event()
+        self.exit_requested = threading.Event()
         self.driver_idle = threading.Event()
         self.driver_idle.set()
         self.icon = pystray.Icon("XTE-Link", icon_image(), "XTE-Link · 正在启动", pystray.Menu(
             pystray.MenuItem(lambda item: self.status, None, enabled=False),
-            pystray.MenuItem("设备安装与维护", self.installer_dialog, default=True),
+            pystray.MenuItem("连接与版本状态", self.status_dialog, default=True),
+            pystray.MenuItem("设备安装与维护", self.installer_dialog),
             pystray.MenuItem("串口", pystray.Menu(self.port_items)),
             pystray.MenuItem("连接方式", pystray.Menu(
-                pystray.MenuItem("自动跟随设备", self.select_mode("auto"), checked=lambda item: self.config["mode"] == "auto", radio=True),
-                pystray.MenuItem("串口直连", self.select_mode("usb"), checked=lambda item: self.config["mode"] == "usb", radio=True),
-                pystray.MenuItem("局域网连接", self.select_mode("lan"), checked=lambda item: self.config["mode"] == "lan", radio=True))),
+                pystray.MenuItem("自动跟随设备", self.select_mode("auto"), checked=lambda item: self.state_snapshot()["config"]["mode"] == "auto", radio=True),
+                pystray.MenuItem("串口直连", self.select_mode("usb"), checked=lambda item: self.state_snapshot()["config"]["mode"] == "usb", radio=True),
+                pystray.MenuItem("局域网连接", self.select_mode("lan"), checked=lambda item: self.state_snapshot()["config"]["mode"] == "lan", radio=True))),
             pystray.MenuItem("设备", pystray.Menu(self.device_items)),
             pystray.MenuItem("配置 WiFi（USB）", lambda icon, item: self.configure_wifi(icon, item)),
             pystray.MenuItem("上传休眠图片（USB）", self.sleep_images_dialog),
@@ -87,14 +93,15 @@ class TrayApp:
         self.worker = threading.Thread(target=self.run_driver, name="xte-telemetry")
 
     def port_items(self):
+        selected_port = self.state_snapshot()["port"]
         yield pystray.MenuItem("自动检测", self.select_port(None),
-                               checked=lambda item: self.selected_port is None, radio=True)
+                               checked=lambda item: self.state_snapshot()["port"] is None, radio=True)
         devices = {p.device: p.description for p in list_ports.comports()}
-        if self.selected_port and self.selected_port not in devices:
-            devices[self.selected_port] = "未连接"
+        if selected_port and selected_port not in devices:
+            devices[selected_port] = "未连接"
         for port, description in sorted(devices.items()):
             yield pystray.MenuItem(f"{port} · {description}", self.select_port(port),
-                                   checked=lambda item, port=port: self.selected_port == port,
+                                   checked=lambda item, port=port: self.state_snapshot()["port"] == port,
                                    radio=True)
 
     def select_port(self, port):
@@ -112,6 +119,12 @@ class TrayApp:
             self.selected_port = self.config["port"]
             self.session_stop.set()
 
+    def state_snapshot(self):
+        with self.lock:
+            return {"config": {**self.config, "devices": dict(self.config["devices"])},
+                    "devices": {key: dict(value) for key, value in self.devices.items()},
+                    "port": self.selected_port, "usb_device": self.usb_device}
+
     def select_mode(self, mode):
         def select(icon, item):
             try:
@@ -122,12 +135,13 @@ class TrayApp:
         return select
 
     def device_items(self):
-        devices = {**self.config["devices"], **self.devices}
+        snapshot = self.state_snapshot()
+        devices = {**snapshot["config"]["devices"], **snapshot["devices"]}
         if not devices:
             yield pystray.MenuItem("请先连接 USB 配置", None, enabled=False)
         for device in sorted(devices):
             yield pystray.MenuItem(device, self.select_device(device),
-                                  checked=lambda item, device=device: self.config["device"] == device, radio=True)
+                                  checked=lambda item, device=device: self.state_snapshot()["config"]["device"] == device, radio=True)
 
     def select_device(self, device):
         def choose(icon, item):
@@ -140,16 +154,22 @@ class TrayApp:
 
     def device_changed(self, info):
         device = info["device"]
-        self.devices[device] = {**self.devices.get(device, {}), **info}
-        self.usb_device = device
-        self.config = load_config(self.config_path)
+        with self.lock:
+            self.devices[device] = {**self.devices.get(device, {}), **info}
+            self.usb_device = device
+            self.config = load_config(self.config_path)
+            self.selected_port = self.config["port"]
+            prompt = ((not info["configured"] or device not in self.config["devices"])
+                      and device not in self.prompted)
+            if prompt:
+                self.prompted.add(device)
         self.icon.update_menu()
-        if (not info["configured"] or device not in self.config["devices"]) and device not in self.prompted:
-            self.prompted.add(device)
+        if prompt:
             self.configure_wifi(None, None, device)
 
     def dialog(self, build):
         if not self.dialog_lock.acquire(blocking=False):
+            self.dialog_show.set()
             return
         def show():
             try:
@@ -160,14 +180,28 @@ class TrayApp:
                 window.resizable(False, False)
                 window.attributes("-topmost", True)
                 build(window, tk, ttk, messagebox)
+                def raise_requested():
+                    if self.dialog_show.is_set():
+                        self.dialog_show.clear()
+                        window.deiconify()
+                        window.lift()
+                        window.focus_force()
+                    window.after(100, raise_requested)
+                window.after(100, raise_requested)
                 window.mainloop()
             except Exception:
                 logging.exception("Cannot open settings window")
             finally:
+                self.open_maintenance.clear()
                 self.dialog_lock.release()
         threading.Thread(target=show, name="xte-settings", daemon=True).start()
 
     def installer_dialog(self, icon=None, item=None):
+        from pc_driver.install_window import build_window
+        self.open_maintenance.set()
+        self.dialog(lambda *args: build_window(self, *args, maintenance=True))
+
+    def status_dialog(self, icon=None, item=None):
         from pc_driver.install_window import build_window
         self.dialog(lambda *args: build_window(self, *args))
 
@@ -179,8 +213,14 @@ class TrayApp:
             self.maintenance.set()
             self.session_stop.set()
         try:
-            if not self.driver_idle.wait(15):
-                raise TimeoutError("驱动尚未释放串口，请稍后重试。")
+            deadline = time.monotonic() + 15
+            while not self.driver_idle.wait(.1):
+                if self.installer_cancel.is_set() or self.stop_event.is_set():
+                    raise InterruptedError("已停止等待驱动释放串口。")
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("驱动尚未释放串口，请稍后重试。")
+            if self.installer_cancel.is_set() or self.stop_event.is_set():
+                raise InterruptedError("已在安全阶段停止。")
             self.set_status("设备安装中，请保持 USB 连接")
             yield
         finally:
@@ -188,8 +228,9 @@ class TrayApp:
 
     def configure_wifi(self, icon, item, device=None):
         def build(window, tk, ttk, messagebox):
-            candidates = list(self.devices)
-            target = device or self.usb_device or (candidates[0] if len(candidates) == 1 else "")
+            snapshot = self.state_snapshot()
+            candidates = list(snapshot["devices"])
+            target = device or snapshot["usb_device"] or (candidates[0] if len(candidates) == 1 else "")
             ttk.Label(window, text=f"通过 USB 配置设备 {target or '（等待设备连接）'}", padding=12).grid(row=0, column=0, columnspan=2)
             ttk.Label(window, text="WiFi 名称（2.4 GHz）").grid(row=1, column=0, padx=12, pady=6)
             ssid = ttk.Entry(window, width=32)
@@ -226,7 +267,9 @@ class TrayApp:
                     messagebox.showerror("配置失败", error, parent=window)
                     window.after(100, poll)
                 else:
-                    self.config = load_config(self.config_path)
+                    with self.lock:
+                        self.config = load_config(self.config_path)
+                        self.selected_port = self.config["port"]
                     messagebox.showinfo("配置已保存", "请在设备设置中选择“局域网连接”。驱动会自动跟随。", parent=window)
                     window.destroy()
             window.after(100, poll)
@@ -450,13 +493,23 @@ class TrayApp:
         os.startfile(self.log_path)
 
     def quit(self, icon, item):
-        if self.maintenance.is_set() or self.installer_running.is_set():
-            self.icon.notify("请先在安装窗口停止操作，等待当前写入校验完成。", "设备安装进行中")
-            return
-        self.stop_event.set()
         with self.lock:
+            if self.exit_requested.is_set():
+                return
+            self.exit_requested.set()
+            self.installer_cancel.set()
+            self.stop_event.set()
             self.session_stop.set()
-        icon.stop()
+        if self.maintenance.is_set() or self.installer_running.is_set():
+            self.set_status("正在退出，等待设备操作安全停止")
+            self.icon.notify("已请求停止；当前写入及必要校验完成、串口释放后自动退出。", "正在退出")
+            def finish():
+                while self.maintenance.is_set() or self.installer_running.is_set():
+                    time.sleep(.1)
+                icon.stop()
+            threading.Thread(target=finish, name="xte-safe-exit").start()
+        else:
+            icon.stop()
 
     def setup(self, icon):
         icon.visible = True
@@ -470,10 +523,10 @@ class TrayApp:
                 while not self.stop_event.is_set():
                     if kernel.WaitForSingleObject(self.show_event, 250) == 0:
                         kernel.ResetEvent(self.show_event)
-                        self.installer_dialog()
+                        self.status_dialog()
             threading.Thread(target=listen, name="xte-show-window", daemon=True).start()
         if not (self.root / "installer-seen").exists():
-            self.installer_dialog()
+            self.status_dialog()
 
     def run(self):
         try:

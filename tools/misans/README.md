@@ -20,7 +20,10 @@ MiSans 不适用本仓库的代码许可证；使用前阅读 [官方许可](htt
 包内 `MiSans/ttf/MiSans-Medium.ttf` 与 `MiSans-Regular.ttf`，没有实现私有下载器或字体引擎。
 原包、TTF 都不会被修改。官网更新后摘要不匹配会停止，不能绕过检查后把新版本当旧版本。
 
-默认产物在 `artifacts/misans-local/misans-4.009-medium-v1/`：
+历史原包、TTF、生成字库和复现对照已移入[归档目录](../../docs/归档说明.md)。
+默认路径仍是后续生成位置；已有归档输入可通过 `--source-zip` 指定，验证时使用 `--bundle` 与 `--source-zip`。
+
+新生成产物位于 `artifacts/misans-local/misans-4.009-medium-v1/`：
 
 - `fonts/`：TF 卡 `/fonts/` 对应的 4 份 EPDF 文件；
 - `MiSans-white-preview.png`：Regular/Medium 同文、同像素尺寸、白底 1:1 实际栅格预览；
@@ -97,4 +100,4 @@ SDK 固定 `7d86603ad27709a9a766bb5ad893cfc39e60777e`，当前没有相应的 TF
 在此之前沿用官方获取、本地生成这条路径，不公开字体 ZIP、TTF 或生成的 TF 字库。
 
 本目录许可证快照来自官方许可页面正文；原始 HTML 保存在本机
-`artifacts/misans-local/source/official-download.html`，供核对。再次使用时以官方当前条款为准。
+[归档中的 misans-local/source/official-download.html](../../../XTE-Link-备份/2026-10-19_191905/project/artifacts/misans-local/source/official-download.html)，供核对。再次使用时以官方当前条款为准。

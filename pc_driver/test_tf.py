@@ -2,6 +2,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import Mock, patch
 
@@ -180,6 +181,89 @@ class TfTests(unittest.TestCase):
         self.assertEqual(client._read(1), b"C")
         self.assertEqual(client._read(6), b"XTE: t")
         connection.read.assert_called_once_with(8)
+
+    def test_legacy_upload_cancel_stops_between_chunks_before_finish(self):
+        cancel = threading.Event()
+        connection = ScriptedSerial([{}, {"offset": CHUNK}])
+        def check():
+            if cancel.is_set():
+                raise InterruptedError()
+        client = TfClient(connection, check_cancel=check)
+        client.progress = lambda *args: cancel.set()
+        with self.assertRaises(InterruptedError):
+            client.upload_bytes(b"x" * (CHUNK + 1), "/font.xte-next")
+        self.assertEqual([row["op"] for row in connection.requests], ["put", "write"])
+
+    def test_ymodem_cancel_at_read_boundary_sends_existing_can_cleanup(self):
+        cancel = threading.Event()
+        connection = Mock()
+        connection.write.side_effect = lambda data: len(data)
+        def check():
+            if cancel.is_set():
+                raise InterruptedError("cancelled")
+        client = TfClient(connection, check_cancel=check)
+        client.pending.extend(b"stale")
+        packet = b"x" * 1029
+        def modem(read, write, **kwargs):
+            sender = Mock()
+            def send(*args, **kwargs):
+                write(packet)
+                cancel.set()
+                read(1)
+            sender.send.side_effect = send
+            return sender
+        with patch("ymodem.Socket.ModemSocket", side_effect=modem), patch("pc_driver.tf.time.sleep"):
+            with self.assertRaisesRegex(InterruptedError, "cancelled"):
+                client._send_ymodem("unused-path")
+        self.assertEqual([call.args[0] for call in connection.write.call_args_list],
+                         [packet, b"\x18\x18", b"\x18\x18"])
+        self.assertEqual(client.pending, b"")
+        connection.read.assert_not_called()
+
+    def test_real_upstream_sender_does_not_swallow_cancel_as_read_timeout(self):
+        connection = Mock()
+        connection.write.side_effect = lambda data: len(data)
+        def check():
+            raise InterruptedError("requested stop")
+        client = TfClient(connection, check_cancel=check)
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "font.bin"
+            local.write_bytes(b"font")
+            with patch("pc_driver.tf.time.sleep"), patch("ymodem.Socket.time.perf_counter", side_effect=[0, 0]) as clock:
+                with self.assertRaisesRegex(InterruptedError, "requested stop"):
+                    client._send_ymodem(local)
+            self.assertEqual(clock.call_count, 2)
+            # The upstream sender's file is released after cancellation too.
+            local.unlink()
+        self.assertEqual([call.args[0] for call in connection.write.call_args_list],
+                         [b"\x18\x18", b"\x18\x18"])
+        connection.read.assert_not_called()
+
+    def test_real_upstream_cancel_during_data_ack_uses_bounded_retries_and_closes_file(self):
+        cancel = threading.Event()
+        connection = Mock(in_waiting=1)
+        connection.read.side_effect = [b"C", b"\x06", b"C"]
+        def write(data):
+            if len(data) == 1029 and data[1] == 1:
+                cancel.set()
+            return len(data)
+        connection.write.side_effect = write
+        def check():
+            if cancel.is_set():
+                raise InterruptedError("requested stop")
+        client = TfClient(connection, check_cancel=check)
+        ticks = iter(n * .6 for n in range(100))
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "font.bin"
+            local.write_bytes(b"font")
+            with patch("pc_driver.tf.time.sleep"), patch("ymodem.Socket.time.perf_counter", side_effect=lambda: next(ticks)), \
+                 patch("ymodem.Socket.logging.getLogger"):
+                with self.assertRaisesRegex(InterruptedError, "requested stop"):
+                    client._send_ymodem(local)
+            local.unlink()
+        frames = [call.args[0] for call in connection.write.call_args_list]
+        self.assertEqual([frame[1] for frame in frames if len(frame) == 1029], [0, 1])
+        self.assertEqual(frames[-4:], [b"\x18", b"\x18", b"\x18\x18", b"\x18\x18"])
 
     def test_partial_usb_reply_wakes_with_read_only_hello_without_replaying_write(self):
         class StalledSerial:

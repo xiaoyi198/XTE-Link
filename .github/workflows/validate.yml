@@ -1,0 +1,35 @@
+name: Validate
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned dependencies
+        run: python -m pip install -r requirements-dev.txt -r pc_driver/requirements-build.txt
+      - name: Apply pinned dependency patches
+        run: |
+          python scripts/apply_sdk_patch.py
+          python scripts/apply_ymodem_patch.py
+          python scripts/check_dependencies.py
+      - name: Build application and prepare test prerequisites
+        run: python -m platformio run -e xteink_x4
+      - name: Run isolated regression tests
+        run: |
+          python -B -m unittest scripts.test_build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B -m unittest discover -s pc_driver -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python firmware/tests/verify_settings.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python firmware/tests/verify_ymodem.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python firmware/tests/verify_ymodem_interop.py
+          exit $LASTEXITCODE

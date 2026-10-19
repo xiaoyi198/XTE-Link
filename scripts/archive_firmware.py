@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
 
@@ -25,6 +26,7 @@ def archive_firmware(source, target, env):
         raise RuntimeError("Archived firmware SHA-256 mismatch")
     sources = sorted((root / "firmware/src").glob("*.cpp")) + sorted((root / "firmware/src").glob("*.h"))
     sources += [root / "platformio.ini", root / "scripts/archive_firmware.py"]
+    sources += [root / "scripts/check_build.py", root / "scripts/check_dependencies.py"]
     sources += [root / "scripts/apply_ymodem_patch.py", root / "patches/ymodem-stream.patch"]
     sources += [root / "scripts/apply_sdk_patch.py", root / "patches/open-x4-sdk-sdcard-format.patch",
                 root / "patches/open-x4-sdk-sdcard-space.patch"]
@@ -33,6 +35,7 @@ def archive_firmware(source, target, env):
         sources.append(root / "firmware/tests/tf_benchmark.h")
     sdk_commit = subprocess.check_output(["git", "-C", str(root / "open-x4-sdk"), "rev-parse", "HEAD"], text=True).strip()
     sdk_changes = subprocess.check_output(["git", "-C", str(root / "open-x4-sdk"), "status", "--porcelain"], text=True).strip()
+    dependencies = runpy.run_path(str(root / "scripts/check_dependencies.py"))["check_dependencies"](root)
     manifest = {
         "created_shanghai": now.isoformat(timespec="microseconds"),
         "environment": env.subst("$PIOENV"),
@@ -40,6 +43,9 @@ def archive_firmware(source, target, env):
         "image": destination.name,
         "bytes": len(data),
         "sha256": digest,
+        "git_head": subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(),
+        "git_dirty": bool(subprocess.check_output(["git", "-C", str(root), "status", "--porcelain"], text=True).strip()),
+        "dependencies": dependencies,
         "sdk_commit": sdk_commit,
         "sdk_local_changes": sdk_changes,
         "ymodem_commit": subprocess.check_output(["git", "-C", str(root / "third_party/esp32-ymodem"), "rev-parse", "HEAD"], text=True).strip(),

@@ -1,0 +1,66 @@
+{
+  "created_shanghai": "2026-10-19T18:45:46.602352+08:00",
+  "environment": "xteink_x4",
+  "build_flags": [
+    "-DARDUINO_USB_MODE=1",
+    "-DARDUINO_USB_CDC_ON_BOOT=1",
+    "-DEINK_DISPLAY_SINGLE_BUFFER_MODE",
+    "-DUSE_UTF8_LONG_NAMES=1"
+  ],
+  "image": "firmware.bin",
+  "bytes": 934048,
+  "sha256": "94a8ba2bbc77fd03d4acdd02231291c6d53738ac0dd341cd8705bb45d82bc57c",
+  "git_head": "fd48aa9a17b633cdee4b80c500882c07a2e5e5dc",
+  "git_dirty": true,
+  "dependencies": {
+    "sdk": {
+      "commit": "7d86603ad27709a9a766bb5ad893cfc39e60777e",
+      "patch_applied": true,
+      "patch_sha256": "a26161b0c499b0c3103544f554a6b86336fb0ea6cf5cc771db34259a683abce7",
+      "sources": {
+        "open-x4-sdk/libs/hardware/SDCardManager/include/SDCardManager.h": "63129738fa6226842604de57e1ffb151ea91107b8d8be902da6da613ffc64e14",
+        "open-x4-sdk/libs/hardware/SDCardManager/src/SDCardManager.cpp": "7b9ab1d2b7b03bb03f1f50953e5968f25c6471d2a5d4eda48d30c9da0510bf08"
+      }
+    },
+    "ymodem": {
+      "commit": "efb1466d00bc8f4f591c770cd349819675e83b83",
+      "patch_applied": true,
+      "patch_sha256": "869e2565664075bc78cd0115ad8f23b232dd53d0e3ecfe52d7c83fbf97f2a524",
+      "sources": {
+        "third_party/esp32-ymodem/components/ymodem/ymodem.c": "2aeced37464d5c5eb4db0d2a098c9cb8a157119e69db5b04bea69c396c40e4f8",
+        "third_party/esp32-ymodem/components/ymodem/ymodem.h": "b20f3073fceeb28ddc03a821ded667a08cae918d17d86c7839e34713f8e2d7e6",
+        "third_party/esp32-ymodem/components/ymodem/library.json": "5c1ad0a22ee96034d609f66dd4d0bf86ab20692672a2f9aa8a07444b8c44ec80"
+      }
+    }
+  },
+  "sdk_commit": "7d86603ad27709a9a766bb5ad893cfc39e60777e",
+  "sdk_local_changes": "M libs/hardware/SDCardManager/include/SDCardManager.h\n M libs/hardware/SDCardManager/src/SDCardManager.cpp",
+  "ymodem_commit": "efb1466d00bc8f4f591c770cd349819675e83b83",
+  "ymodem_sources": {
+    "third_party/esp32-ymodem/components/ymodem/library.json": "5c1ad0a22ee96034d609f66dd4d0bf86ab20692672a2f9aa8a07444b8c44ec80",
+    "third_party/esp32-ymodem/components/ymodem/ymodem.c": "2aeced37464d5c5eb4db0d2a098c9cb8a157119e69db5b04bea69c396c40e4f8",
+    "third_party/esp32-ymodem/components/ymodem/ymodem.h": "b20f3073fceeb28ddc03a821ded667a08cae918d17d86c7839e34713f8e2d7e6"
+  },
+  "source_hashes": {
+    "firmware/src/main.cpp": "836e9d77330e3c22d76e22968e285df57a06699b17c6f0ec80d442d6f576692b",
+    "firmware/src/clash_panel.h": "fa6a5a69e7d4f7cd58b887be9b7f8d84fd9899d58f2a9a00a45154001926c83f",
+    "firmware/src/network.h": "21c79acc75e721a15bd7c1a7775d3559fdd9c57c891803657e3a91f7679e91d0",
+    "firmware/src/protocol.h": "125f2e2bf0fc033eb6c114b9b9a4db5dc66fd308bf4fd2cad39e5d7db4113951",
+    "firmware/src/settings.h": "a3e02c42be8b28a34a6621a5adbbc67fb02c6c3abb777e86edea283027a16fed",
+    "firmware/src/sleep_art.h": "e0802bf4baf767886e917bc84db103b4ff638121c1aa3801374499580222a259",
+    "firmware/src/sleep_image.h": "603620363ae7babadd944731a06238d71b2414a950b6595ad046fc2a29357a75",
+    "firmware/src/tf_font.h": "1604607d6d372991196d4e9b4e7d3ac5c0bc4dea7c8e8989affb47c0b48f1a44",
+    "firmware/src/tf_transfer.h": "9ae485b2021e48b755ff43cfdd77fb6ea1235c29b3a8a6bf05ea7ea2c731bc7f",
+    "firmware/src/ui_assets.h": "28708466de9cf24beb92e842ca44c63b5eca471737f4b5ec3234159755f17379",
+    "platformio.ini": "389d29811b483456ee148d238e06effd64eb9baa69ab5eaccc8b325e222b340a",
+    "scripts/archive_firmware.py": "e9605b633ca20b60ca728636f6496e34db98a276f30710c81f3bc487d89fac84",
+    "scripts/check_build.py": "c372129cebe93494e9c1003f0237961cef56dc7adcf03fa04f17bbe0eb2ba36f",
+    "scripts/check_dependencies.py": "12060f088ec6b31929d19ed4b413e2fdccfacb730aa40fbd68dd1630909cce4e",
+    "scripts/apply_ymodem_patch.py": "f265b8ae07efdc6aa7700746e04ede6399b5c9aa92920ca655865f5cd91c4f21",
+    "patches/ymodem-stream.patch": "869e2565664075bc78cd0115ad8f23b232dd53d0e3ecfe52d7c83fbf97f2a524",
+    "scripts/apply_sdk_patch.py": "b5c78a1ca7b90f3001d42cd959e6bc10394b2e036b20e83bd18942dab1e568f8",
+    "patches/open-x4-sdk-sdcard-format.patch": "a26161b0c499b0c3103544f554a6b86336fb0ea6cf5cc771db34259a683abce7",
+    "patches/open-x4-sdk-sdcard-space.patch": "72288cdf0731ec022e6137c7de43e2d18618adb8b4145e31e3b5d4f338071266"
+  },
+  "scope": "application image; existing full Flash backups are retained separately"
+}

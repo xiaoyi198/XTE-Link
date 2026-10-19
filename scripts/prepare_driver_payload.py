@@ -14,10 +14,11 @@ PARSER_SHA = "ddf6a05b170f9014fe7046b1b244dd4b3ef41254d926fd4e7f7b94ee300531e2"
 
 GUIDE = """XTE-Link 单文件驱动与安装工具
 
-双击 EXE，首次自动打开“设备安装与维护”；以后从托盘打开。
+双击 EXE 或托盘图标打开只读状态窗口；需安装时明确进入“设备安装与维护”。
 USB 连接并唤醒初代 Xteink X4，插入可用 TF 卡，选择唯一或指定的 USB 设备。
 一键完整安装／更新：先准备 MiSans 字库，再备份／刷固件、写字库与内置图片，最后校验。
-也可单独刷入固件、安装字库或安装素材。程序不需要外部 Python、PlatformIO 或 esptool。
+也可单独刷入固件、安装字库或安装素材；完整安装与刷固件开始前需确认目标及备份范围。
+程序不需要外部 Python、PlatformIO 或 esptool。
 首次字库下载约 228 MB。XTE-Link 使用小米提供的 MiSans 字体；官方许可在本文件附带的许可中。
 字体在本机生成，不随 EXE 分发 ZIP、TTF 或 EPDF。可导入自己从官方下载的 MiSans.zip。
 缓存、完整 Flash 及更新前应用备份、日志位于用户目录 .xte-link/。
@@ -29,7 +30,8 @@ USB 连接并唤醒初代 Xteink X4，插入可用 TF 卡，选择唯一或指�
 中断刷写可能使应用暂时不能启动，可重新通过 USB 点击刷入配套固件；已有备份与恢复槽保留。
 TF 安装复用 YMODEM-1K 和完整卡内回读校验；同内容跳过。候选文件校验后保留旧文件并切换。
 不格式化卡，不删除用户图片、旧 Zheng 字库、WiFi 或 NVS 设置。
-停止将在当前文件传输或固件校验结束后生效。意外断电后重新执行可恢复常见替换中断。
+停止在传输检查点生效；正在执行的固件刷写／校验或文件切换须安全收尾，窗口显示等待阶段。
+退出期间不强杀写入线程。意外断电后重新执行可恢复常见替换中断。
 设置 WiFi、休眠图片上传、状态推送、Codex 审批、Clash 功能仍从托盘使用。
 复杂审批在电脑处理。程序不会设置开机自启。
 
@@ -52,6 +54,14 @@ def prepare(root, firmware_dir):
     for name, expected in original["source_hashes"].items():
         if digest(root / name) != expected:
             raise ValueError(f"Firmware does not match current sources: {name}; rebuild and archive first")
+    from scripts.check_dependencies import check_dependencies
+    dependencies = check_dependencies(root)
+    if any(original[name + "_commit"] != dependencies[name]["commit"] for name in ("sdk", "ymodem")):
+        raise ValueError("Firmware dependency commits changed; rebuild and archive first")
+    if "dependencies" in original and dependencies != original["dependencies"]:
+        raise ValueError("Firmware dependency sources changed; rebuild and archive first")
+    if "ymodem_sources" in original and dependencies["ymodem"]["sources"] != original["ymodem_sources"]:
+        raise ValueError("Firmware YMODEM sources changed; rebuild and archive first")
     stage = root / "build" / "pc-driver" / "install_payload"
     stage.mkdir(parents=True, exist_ok=True)
     assets, support = [], []
@@ -101,7 +111,9 @@ def prepare(root, firmware_dir):
             for pattern in patterns:
                 for path in (root / folder).glob(pattern):
                     archive.write(path, str(path.relative_to(root)))
-        for name in ("LICENSE", "README.md", "platformio.ini", "requirements-dev.txt", ".gitmodules"):
+        for name in ("LICENSE", "README.md", "platformio.ini", "requirements-dev.txt", ".gitmodules",
+                     "PROTOCOL.md", "TF_FILES.md", "docs/硬件契约-核实版.md", "docs/按键方向约定.md",
+                     "docs/维护性修复计划-2026-10-19.md"):
             archive.write(root / name, name)
         archive.write(parser, "third_party/gen_esp32part.py")
         for name in packages:

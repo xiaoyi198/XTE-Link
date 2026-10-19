@@ -5,20 +5,46 @@ from importlib.metadata import distribution
 import argparse
 import hashlib
 from pathlib import Path
+import re
 import subprocess
 import sys
+
+
+def check_requirements(path):
+    """Check declared pins only; unrelated installed packages are allowed."""
+    for raw in Path(path).read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith("-r "):
+            check_requirements(Path(path).parent / line[3:].strip())
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([^\s;]+)", line)
+        if not match:
+            raise RuntimeError(f"Unsupported build dependency pin: {line}")
+        name, expected = match.groups()
+        try:
+            actual = distribution(name).version
+        except ModuleNotFoundError as error:
+            raise RuntimeError(f"Missing build dependency: {name}=={expected}; install pc_driver/requirements-build.txt") from error
+        if actual != expected:
+            raise RuntimeError(f"Build dependency {name}: expected {expected}, installed {actual}; install pc_driver/requirements-build.txt")
 
 
 def main():
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root))
-    from pc_driver.tray import icon_image
-    from scripts.prepare_driver_payload import prepare
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--firmware", type=Path, default=root / "artifacts/firmware/installer-20261019")
+    parser.add_argument("--firmware", type=Path, default=root / "artifacts/firmware/maintenance-20261019")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--output", type=Path, help="new release directory; must not already exist")
     args = parser.parse_args()
+    try:
+        check_requirements(root / "pc_driver/requirements-build.txt")
+    except RuntimeError as error:
+        parser.error(str(error))
+    from pc_driver.tray import icon_image
+    from scripts.prepare_driver_payload import prepare
     payload = prepare(root, args.firmware)
     if args.prepare_only:
         print(f"Prepared: {payload}")
@@ -51,29 +77,6 @@ def main():
     ymodem = distribution("ymodem")
     ymodem_license = next(path for path in ymodem.files if str(path).endswith("licenses/LICENSE"))
     (output / "LICENSE-ymodem.txt").write_bytes(ymodem.locate_file(ymodem_license).read_bytes())
-    (output / "使用说明.txt").write_text(
-        "双击 XTE-Link.exe；程序在系统托盘运行，无需安装 Python。\n"
-        "右键图标：连接方式、串口、设备、配置 WiFi、上传休眠图片、驱动设置、日志、退出。\n"
-        "先安装 lan-push-20261014 或更新的兼容固件；首次用 USB 连接，窗口中填写 2.4 GHz WiFi。\n"
-        "WiFi 配置以明文保存在 TF 卡 /xte-link/network.json；此电脑的配对密钥保存在 .xte-link/tray.json。\n"
-        "在设备设置中手动选择串口直连或局域网连接；驱动默认自动跟随该选择。\n"
-        "局域网通过 mDNS 自动发现；无法发现时在驱动设置填写 IP，多设备时在设备菜单选择。\n"
-        "常规推送间隔可设 5～3600 秒，默认 5 秒；AI 事件立即发送，心跳每 5 秒发送。\n"
-        "AI 即时推送支持 DSH、Codex 桌面 IPC 和 agents.json 桥接。\n"
-        "Codex 桌面保持运行，自动同步命令/文件审批；设备 ✓ 批准、顶部 → 拒绝，复杂表单在电脑处理。\n"
-        "拒绝使用原生 decline；请求只有 cancel 时取消本轮。批准始终只选择 accept，不记住规则。\n"
-        "Codex 连接断开或请求已处理时旧按键失效，不模拟 Enter/Esc；内部 IPC 兼容性随桌面版本变化。\n"
-        "Clash 面板需 clash-controls-20261017 或更新固件：订阅/节点分页，代理与 TUN 开关二次确认。\n"
-        "当前官方 Verge 使用本地兼容路径：代理经 Windows WinINet，TUN 经现有内核管道；重载可能恢复。\n"
-        "不会写 Verge 配置；代理守卫、自动检测或其他程序管理的代理拒绝修改。TUN 未作真实切换测试。\n"
-        "订阅更新需完整 Verge 兼容补丁；未安装时仅浏览列表并明确提示，禁止用 provider 更新冒充。\n"
-        "休眠图片通过 USB 上传到 TF 卡 /.sleep/；settings-center-20261018 固件可在设置中预览并选固定/随机/顺序。\n"
-        "usb-tf-20261019 或更新固件自动使用 YMODEM-1K 上传并完整回读 TF 校验；旧固件自动沿用原协议。\n"
-        "快速上传期间设备 UI 和网络轮询暂停，完成后恢复；CLI put --legacy 可手动回退。\n"
-        "旧版 sleep-image-20261016 固件仍为随机显示，根目录 /sleep.bmp 优先。\n"
-        "连接信息保存在用户目录 .xte-link/tray.json；日志在 .xte-link/driver.log。\n"
-        "先关闭旧 Python 驱动或串口监视器，避免串口占用。\n"
-        "重复双击仅保留一个托盘实例；程序不会设置开机自启。\n", encoding="utf-8")
     # The authoritative installation guide and licenses also live inside the EXE.
     import shutil
     for name in ("使用说明.txt", "THIRD-PARTY-NOTICES.txt", "corresponding-source.zip", "manifest.json"):

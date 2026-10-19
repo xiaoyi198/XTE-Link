@@ -29,7 +29,7 @@ def remote_path(value):
 
 
 class TfClient:
-    def __init__(self, connection, timeout=45, prefer_ymodem=True):
+    def __init__(self, connection, timeout=45, prefer_ymodem=True, check_cancel=lambda: None):
         self.connection = connection
         self.timeout = timeout
         self.sequence = secrets.randbelow(0x7fffffff)
@@ -38,6 +38,7 @@ class TfClient:
         self.prefer_ymodem = prefer_ymodem
         self.install_version = 0
         self.progress = None
+        self.check_cancel = check_cancel
 
     def _read(self, count=1, timeout=1):
         deadline = time.monotonic() + timeout
@@ -133,6 +134,7 @@ class TfClient:
         digest = hashlib.sha256()
         size = 0
         while block := source.read(65536):
+            self.check_cancel()
             digest.update(block)
             size += len(block)
         if size > 0xffffffff:
@@ -141,23 +143,27 @@ class TfClient:
         source.seek(0)
         fast = self.ymodem and self.prefer_ymodem and local is not None and size <= 0x7fffffff
         fields = {"transport": "ymodem1k"} if fast else {}
+        self.check_cancel()
         response = self.request("put", path=remote, size=size, sha256=expected, **fields)
         if fast:
             if response.get("transport") != "ymodem1k":
                 raise OSError("Firmware did not accept YMODEM")
             self._send_ymodem(local)
+            self.check_cancel()
             response = self.request("finish")
             if response.get("sha256") != expected or response.get("sd_sha256") != expected:
                 raise OSError("Upload SD read-back SHA-256 mismatch")
             return size, expected
         offset = 0
         while block := source.read(CHUNK):
+            self.check_cancel()
             response = self.request("write", offset=offset, data=block.hex())
             offset += len(block)
             if response.get("offset") != offset:
                 raise OSError("Unexpected upload offset")
             if self.progress:
                 self.progress(offset, size)
+        self.check_cancel()
         response = self.request("finish")
         if response.get("sha256") != expected:
             raise OSError("Upload SHA-256 mismatch")
@@ -169,9 +175,30 @@ class TfClient:
         trailer = None
         eot_sent = False
         write_error = None
+        cancelled_message = None
+
+        def cancelled():
+            nonlocal cancelled_message
+            if cancelled_message is None:
+                try:
+                    self.check_cancel()
+                except InterruptedError as exc:
+                    cancelled_message = str(exc)
+            return cancelled_message is not None
+
+        def read(count=1, timeout=1):
+            # Upstream read() swallows Exception, and send() has no finally for
+            # its file. Feed its existing CAN/failure path so it closes the
+            # stream normally; ACK waits finish their finite retry budget.
+            if cancelled():
+                time.sleep(.01)
+                return b"\x18"
+            return self._read(count, timeout)
 
         def write(data, timeout=1):
             nonlocal trailer, eot_sent, write_error
+            if cancelled() and data != b"\x18":
+                return len(data)  # Do not transmit more packets after stopping.
             if data == b"\x04":
                 eot_sent = True
             if eot_sent and len(data) in (133, 1029) and data[1] == 0 and data[3] == 0:
@@ -185,16 +212,21 @@ class TfClient:
             return len(data)
 
         try:
-            modem = ModemSocket(self._read, write, packet_size=1024)
+            modem = ModemSocket(read, write, packet_size=1024)
             callback = (lambda index, name, total, sent: self.progress(sent, total)) if self.progress else None
-            if not modem.send([str(local)], callback=callback) or write_error or trailer is None:
+            sent = modem.send([str(local)], callback=callback)
+            if cancelled_message is not None:
+                raise InterruptedError(cancelled_message)
+            if not sent or write_error or trailer is None:
                 raise OSError("YMODEM send failed") from write_error
             # Upstream 1.5.3 sends the batch trailer without waiting for its ACK.
             # Finish that standard handshake here, including lost-ACK recovery.
             for attempt in range(10):
                 deadline = time.monotonic() + 1
                 while time.monotonic() < deadline:
-                    response = self._read(1, max(0, deadline - time.monotonic()))
+                    response = read(1, max(0, deadline - time.monotonic()))
+                    if cancelled_message is not None:
+                        raise InterruptedError(cancelled_message)
                     if response == b"\x06":
                         return
                     if response == b"\x18":
